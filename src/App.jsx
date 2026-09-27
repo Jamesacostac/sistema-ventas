@@ -7,27 +7,33 @@ import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegra
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line 
 } from 'recharts';
-import { CheckCircle, XCircle, FileText, PlusCircle, Trash2, ShoppingBag, Package, DollarSign, CreditCard, Send, Coffee, Gift, BookOpen, AlertTriangle } from 'lucide-react';
+import { 
+  CheckCircle, XCircle, FileText, PlusCircle, Trash2, ShoppingBag, 
+  Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
+  Edit2, ChevronDown, ChevronUp, Save, X
+} from 'lucide-react';
 
 export default function App() {
   const [pestana, setPestana] = useState('ventas');
   const [productos, setProductos] = useState([]);
   const [ventas, setVentas] = useState([]);
+  const [categorias, setCategorias] = useState([]);
   const [cargando, setCargando] = useState(true);
 
-  // Referencias mutables para el listener de Telegram
+  // Estado para expandir detalle individual en la tabla de productos
+  const [productoExpandidoId, setProductoExpandidoId] = useState(null);
+
+  // Estado para editar un producto existente
+  const [editandoProductoId, setEditandoProductoId] = useState(null);
+
+  // Referencias para listener de Telegram
   const productosRef = useRef(productos);
   const ventasRef = useRef(ventas);
 
-  useEffect(() => {
-    productosRef.current = productos;
-  }, [productos]);
+  useEffect(() => { productosRef.current = productos; }, [productos]);
+  useEffect(() => { ventasRef.current = ventas; }, [ventas]);
 
-  useEffect(() => {
-    ventasRef.current = ventas;
-  }, [ventas]);
-
-  // Escuchar cambios en Firestore en tiempo real
+  // Escuchar Firestore en tiempo real
   useEffect(() => {
     const unsubProductos = onSnapshot(collection(db, 'productos'), (snapshot) => {
       const listaProds = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -40,13 +46,19 @@ export default function App() {
       setCargando(false);
     });
 
+    const unsubCategorias = onSnapshot(collection(db, 'categorias'), (snapshot) => {
+      const listaCats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setCategorias(listaCats);
+    });
+
     return () => {
       unsubProductos();
       unsubVentas();
+      unsubCategorias();
     };
   }, []);
 
-  // Listener de Telegram para responder solicitudes de los socios en chat
+  // Listener Telegram
   useEffect(() => {
     const intervalo = setInterval(async () => {
       const mensajes = await obtenerUltimosMensajesTelegram();
@@ -54,19 +66,15 @@ export default function App() {
 
       for (const update of mensajes) {
         if (!update.message || !update.message.text) continue;
-
         const texto = update.message.text.trim().toLowerCase();
 
-        // Si piden reporte o ventas
         if (texto.includes('reporte') || texto.includes('ventas') || texto.includes('cierre')) {
           generarYEnviarReporteCierre(ventasRef.current);
-        } 
-        // Si piden agotados, stock o faltantes
-        else if (texto.includes('agotad') || texto.includes('stock') || texto.includes('faltan') || texto.includes('reponer')) {
+        } else if (texto.includes('agotad') || texto.includes('stock') || texto.includes('faltan') || texto.includes('reponer')) {
           generarYEnviarAlertaStock(productosRef.current);
         }
       }
-    }, 5000); // Consulta la API de Telegram cada 5 segundos
+    }, 5000);
 
     return () => clearInterval(intervalo);
   }, []);
@@ -87,10 +95,13 @@ export default function App() {
     precio: '',
     stock: '',
     vencimiento: '',
+    categoria: '',
     descripcion: ''
   });
 
-  // Generadores de reportes aislados para reuso
+  const [nuevaCategoria, setNuevaCategoria] = useState('');
+
+  // Reportes Telegram
   const generarYEnviarReporteCierre = async (listaVentas) => {
     const ventasPagadas = (listaVentas || ventas).filter(v => v.pagado);
     const totalIngresos = ventasPagadas.reduce((acc, v) => acc + v.total, 0);
@@ -149,6 +160,7 @@ export default function App() {
     return await enviarMensajeTelegram(textoAlerta);
   };
 
+  // Handlers
   const handleAgregarVenta = async (e) => {
     e.preventDefault();
     const prod = productos.find(p => p.id === formVenta.productoId);
@@ -187,10 +199,7 @@ export default function App() {
       });
 
       const nuevoStock = prod.stock - cantidad;
-      const prodRef = doc(db, 'productos', prod.id);
-      await updateDoc(prodRef, {
-        stock: Math.max(0, nuevoStock)
-      });
+      await updateDoc(doc(db, 'productos', prod.id), { stock: Math.max(0, nuevoStock) });
 
       if (nuevoStock <= 3) {
         const estadoTexto = nuevoStock === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${nuevoStock} UNIDADES</b>`;
@@ -203,47 +212,84 @@ export default function App() {
         enviarMensajeTelegram(mensajeAlerta);
       }
 
-      setFormVenta({ 
-        cliente: '', 
-        productoId: '', 
-        cantidad: 1, 
-        pagado: true, 
-        medioPago: 'Efectivo', 
-        otroMedioPago: '' 
-      });
+      setFormVenta({ cliente: '', productoId: '', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: '' });
     } catch (error) {
       alert("Error al registrar la venta: " + error.message);
     }
   };
 
-  const handleAgregarProducto = async (e) => {
+  // Crear o Editar Producto
+  const handleGuardarProducto = async (e) => {
     e.preventDefault();
     try {
-      await addDoc(collection(db, 'productos'), {
+      const datosProd = {
         nombre: formProducto.nombre,
         costo: Number(formProducto.costo),
         precio: Number(formProducto.precio),
         stock: Number(formProducto.stock),
         vencimiento: formProducto.vencimiento,
+        categoria: formProducto.categoria || 'Sin categoría',
         descripcion: formProducto.descripcion || 'Sin descripción'
-      });
+      };
 
-      setFormProducto({ nombre: '', costo: '', precio: '', stock: '', vencimiento: '', descripcion: '' });
+      if (editandoProductoId) {
+        await updateDoc(doc(db, 'productos', editandoProductoId), datosProd);
+        setEditandoProductoId(null);
+      } else {
+        await addDoc(collection(db, 'productos'), datosProd);
+      }
+
+      setFormProducto({ nombre: '', costo: '', precio: '', stock: '', vencimiento: '', categoria: '', descripcion: '' });
     } catch (error) {
-      alert("Error al agregar producto: " + error.message);
+      alert("Error al guardar producto: " + error.message);
+    }
+  };
+
+  const iniciarEdicion = (prod) => {
+    setEditandoProductoId(prod.id);
+    setFormProducto({
+      nombre: prod.nombre,
+      costo: prod.costo,
+      precio: prod.precio,
+      stock: prod.stock,
+      vencimiento: prod.vencimiento,
+      categoria: prod.categoria || '',
+      descripcion: prod.descripcion || ''
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelarEdicion = () => {
+    setEditandoProductoId(null);
+    setFormProducto({ nombre: '', costo: '', precio: '', stock: '', vencimiento: '', categoria: '', descripcion: '' });
+  };
+
+  const handleAgregarCategoria = async (e) => {
+    e.preventDefault();
+    if (!nuevaCategoria.trim()) return;
+
+    try {
+      await addDoc(collection(db, 'categorias'), { nombre: nuevaCategoria.trim() });
+      setNuevaCategoria('');
+    } catch (error) {
+      alert("Error al agregar categoría: " + error.message);
+    }
+  };
+
+  const eliminarCategoria = async (id) => {
+    if (confirm("¿Eliminar esta categoría?")) {
+      await deleteDoc(doc(db, 'categorias', id));
     }
   };
 
   const eliminarProducto = async (id) => {
-    if (confirm("¿Eliminar este producto?")) {
+    if (confirm("¿Eliminar este producto del inventario?")) {
       await deleteDoc(doc(db, 'productos', id));
     }
   };
 
   const togglePago = async (id, estadoActual) => {
-    await updateDoc(doc(db, 'ventas', id), {
-      pagado: !estadoActual
-    });
+    await updateDoc(doc(db, 'ventas', id), { pagado: !estadoActual });
   };
 
   const eliminarVenta = async (id) => {
@@ -252,7 +298,7 @@ export default function App() {
     }
   };
 
-  // Cálculos Financieros para Vista
+  // Cuentas financieras
   const ventasPagadas = ventas.filter(v => v.pagado);
   const totalIngresosDia = ventasPagadas.reduce((acc, v) => acc + v.total, 0);
   const totalReposicionDia = ventasPagadas.reduce((acc, v) => acc + v.costoTotal, 0);
@@ -274,7 +320,7 @@ export default function App() {
     else alert("Ocurrió un error al enviar la alerta a Telegram.");
   };
 
-  // Gráficas
+  // Datos para gráficos
   const datosVentasSemanales = (() => {
     const semanas = [
       { mes: 'Sem 1', ventas: 0 },
@@ -328,8 +374,8 @@ export default function App() {
         }
       `}</style>
 
-      {/* Encabezado */}
-      <header className="mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 print-card print:mb-4">
+      {/* Encabezado Principal */}
+      <header className="mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col lg:flex-row justify-between items-center gap-4 print-card print:mb-4">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-slate-900">Informe de Cierre y Ventas</h1>
           <p className="text-xs md:text-sm text-slate-500">
@@ -337,8 +383,8 @@ export default function App() {
           </p>
         </div>
 
-        {/* Pestañas de navegación */}
-        <div className="flex items-center gap-2 no-print bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+        {/* Pestañas */}
+        <div className="flex items-center gap-1.5 no-print bg-slate-100 p-1.5 rounded-xl border border-slate-200 flex-wrap justify-center">
           <button 
             onClick={() => setPestana('ventas')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
@@ -356,6 +402,14 @@ export default function App() {
             <Package size={16} /> Inventario
           </button>
           <button 
+            onClick={() => setPestana('categorias')}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
+              pestana === 'categorias' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Tag size={16} /> Categorías
+          </button>
+          <button 
             onClick={() => setPestana('catalogo')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
               pestana === 'catalogo' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
@@ -365,14 +419,14 @@ export default function App() {
           </button>
         </div>
 
-        {/* Botones de acción Telegram y PDF */}
-        <div className="flex items-center gap-2 no-print flex-wrap justify-end">
+        {/* Botones de acción Telegram / PDF */}
+        <div className="flex items-center gap-2 no-print flex-wrap justify-center lg:justify-end">
           <button 
             onClick={handleEnviarAlertaStockTelegram}
             className="flex items-center gap-1.5 bg-amber-500 text-white px-3 py-2 rounded-lg hover:bg-amber-600 transition shadow text-xs md:text-sm font-semibold"
-            title="Enviar informe a Telegram de los productos agotados o con poco stock"
+            title="Enviar alerta de stock a Telegram"
           >
-            <AlertTriangle size={16} /> Alertar Stock Bajo
+            <AlertTriangle size={16} /> Alertar Stock
           </button>
           <button 
             onClick={handleEnviarReporteTelegram}
@@ -392,6 +446,7 @@ export default function App() {
       {/* ==================== PESTAÑA VENTAS ==================== */}
       {pestana === 'ventas' && (
         <>
+          {/* Tarjetas resumen */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 print:gap-2 print:mb-4">
             <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm print-card">
               <p className="text-xs text-slate-500 font-medium">Ventas Pagadas Hoy</p>
@@ -411,11 +466,12 @@ export default function App() {
             </div>
           </div>
 
+          {/* Formulario Registrar Venta */}
           <div className="no-print bg-white p-5 rounded-xl border border-slate-200 shadow-sm mb-6">
             <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
               <PlusCircle size={20} className="text-indigo-600" /> Registrar Nueva Venta / Regalo
             </h2>
-            <form onSubmit={handleAgregarVenta} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+            <form onSubmit={handleAgregarVenta} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Cliente</label>
                 <input 
@@ -428,7 +484,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Producto / Degustación</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Producto</label>
                 <select 
                   required
                   value={formVenta.productoId}
@@ -443,7 +499,7 @@ export default function App() {
                       disabled={p.stock <= 0}
                     >
                       {p.precio === 0 ? '🎁 [REGALO] ' : ''}
-                      {p.nombre} (${p.precio}) - {p.stock > 0 ? `Stock: ${p.stock}` : '(AGOTADO)'}
+                      {p.nombre} — ${p.precio} (Stock: {p.stock})
                     </option>
                   ))}
                 </select>
@@ -495,7 +551,7 @@ export default function App() {
                     onChange={(e) => setFormVenta({ ...formVenta, pagado: e.target.value === 'true' })}
                     className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                   >
-                    <option value="true">Pagado (Al Contado / Gratis)</option>
+                    <option value="true">Pagado</option>
                     <option value="false">Pendiente (Fiado)</option>
                   </select>
                 </div>
@@ -510,11 +566,12 @@ export default function App() {
             </form>
           </div>
 
+          {/* Tabla de ventas y lateral de inventario rápido */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 print:mb-4">
             <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm no-print">
               <h2 className="text-lg font-bold mb-4 text-slate-800">Registro de Ventas del Día</h2>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse">
+                <table className="w-full text-left text-sm border-collapse min-w-[500px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
                       <th className="p-3">Cliente</th>
@@ -523,13 +580,13 @@ export default function App() {
                       <th className="p-3">Total</th>
                       <th className="p-3">Ganancia</th>
                       <th className="p-3">Estado</th>
-                      <th className="p-3">Acción</th>
+                      <th className="p-3 text-center">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
                     {ventas.length === 0 ? (
                       <tr>
-                        <td colSpan="7" className="text-center p-4 text-slate-400">No hay ventas registradas en la nube.</td>
+                        <td colSpan="7" className="text-center p-4 text-slate-400">No hay ventas registradas aún.</td>
                       </tr>
                     ) : (
                       ventas.map((v) => (
@@ -559,7 +616,7 @@ export default function App() {
                               {v.pagado ? 'Pagado' : 'Pendiente'}
                             </button>
                           </td>
-                          <td className="p-3">
+                          <td className="p-3 text-center">
                             <button 
                               onClick={() => eliminarVenta(v.id)} 
                               className="text-red-500 hover:text-red-700 p-1 rounded"
@@ -575,9 +632,10 @@ export default function App() {
               </div>
             </div>
 
+            {/* Lateral Resumen Stock */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card lg:col-span-1">
-              <h2 className="text-base font-bold mb-3 text-slate-800">Estado de Inventario</h2>
-              <div className="space-y-2">
+              <h2 className="text-base font-bold mb-3 text-slate-800">Estado Rápido de Stock</h2>
+              <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
                 {productos.map((p) => (
                   <div 
                     key={p.id} 
@@ -590,17 +648,19 @@ export default function App() {
                     }`}
                   >
                     <div>
-                      <p className="text-slate-900">{p.nombre}</p>
-                      <p className="opacity-80">
-                        {p.stock <= 0 ? '❌ AGOTADO' : `Stock: ${p.stock}`} | Vence: {p.vencimiento}
-                      </p>
+                      <p className="text-slate-900 font-medium">{p.nombre}</p>
+                      <p className="opacity-80">Vence: {p.vencimiento || 'N/A'}</p>
                     </div>
+                    <span className="font-bold text-sm">
+                      {p.stock <= 0 ? '❌ 0' : `${p.stock} un.`}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
 
+          {/* Gráficos */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print-grid">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card">
               <h3 className="text-sm font-bold mb-3 text-slate-800">Ventas Acumuladas ($)</h3>
@@ -636,13 +696,26 @@ export default function App() {
       {/* ==================== PESTAÑA INVENTARIO ==================== */}
       {pestana === 'inventario' && (
         <>
+          {/* Formulario Crear / Editar Producto */}
           <div className="no-print bg-white p-5 rounded-xl border border-slate-200 shadow-sm mb-6">
-            <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
-              <PlusCircle size={20} className="text-indigo-600" /> Registrar Nuevo Producto / Lote
-            </h2>
-            <form onSubmit={handleAgregarProducto} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                {editandoProductoId ? <Edit2 size={20} className="text-amber-600" /> : <PlusCircle size={20} className="text-indigo-600" />}
+                {editandoProductoId ? 'Editar Producto Seleccionado' : 'Registrar Nuevo Producto / Lote'}
+              </h2>
+              {editandoProductoId && (
+                <button 
+                  onClick={cancelarEdicion}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 bg-slate-100 px-2 py-1 rounded-md"
+                >
+                  <X size={14} /> Cancelar edición
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={handleGuardarProducto} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre (ej. Jugo de Mora)</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
                 <input 
                   type="text" 
                   required
@@ -651,6 +724,20 @@ export default function App() {
                   onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
                   className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
+                <select
+                  value={formProducto.categoria}
+                  onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                >
+                  <option value="">Seleccionar Categoría...</option>
+                  {categorias.map(cat => (
+                    <option key={cat.id} value={cat.nombre}>{cat.nombre}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -667,7 +754,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Precio Venta ($ - 0 si es regalo)</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Precio Venta ($)</label>
                 <input 
                   type="number" 
                   required
@@ -680,7 +767,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Stock Inicial</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Stock</label>
                 <input 
                   type="number" 
                   required
@@ -693,7 +780,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha Vencimiento Lote</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha Vencimiento</label>
                 <input 
                   type="date" 
                   required
@@ -703,12 +790,17 @@ export default function App() {
                 />
               </div>
 
-              <button 
-                type="submit"
-                className="w-full bg-indigo-600 text-white font-semibold p-2 rounded-lg hover:bg-indigo-700 transition"
-              >
-                Guardar Producto
-              </button>
+              <div className="md:col-span-3 lg:col-span-6 flex gap-2">
+                <button 
+                  type="submit"
+                  className={`flex-1 font-semibold p-2.5 rounded-lg transition text-white flex justify-center items-center gap-2 ${
+                    editandoProductoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
+                  }`}
+                >
+                  {editandoProductoId ? <Save size={18} /> : <PlusCircle size={18} />}
+                  {editandoProductoId ? 'Guardar Cambios del Producto' : 'Guardar Producto'}
+                </button>
+              </div>
             </form>
 
             {formProducto.costo && formProducto.precio && (
@@ -719,45 +811,107 @@ export default function App() {
             )}
           </div>
 
+          {/* Tabla Desplegable de Inventario */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
             <h2 className="text-lg font-bold mb-4 text-slate-800">Inventario de Productos y Lotes</h2>
+            <p className="text-xs text-slate-500 mb-3">Haz clic sobre cualquier fila para desplegar y ver los detalles individuales del producto.</p>
+            
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
+              <table className="w-full text-left text-sm border-collapse min-w-[600px]">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-                    <th className="p-3">Producto</th>
-                    <th className="p-3">Costo Proveedor</th>
-                    <th className="p-3">Precio Venta</th>
-                    <th className="p-3">Ganancia / Unidad</th>
-                    <th className="p-3">Stock Actual</th>
+                    <th className="p-3 w-8"></th>
+                    <th className="p-3">Nombre</th>
+                    <th className="p-3">Categoría</th>
+                    <th className="p-3">Costo</th>
+                    <th className="p-3">Precio</th>
+                    <th className="p-3">Stock</th>
                     <th className="p-3">Vencimiento</th>
-                    <th className="p-3 no-print">Acción</th>
+                    <th className="p-3 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {productos.map((p) => (
-                    <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="p-3 font-semibold text-slate-900">
-                        {p.precio === 0 ? <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold mr-2"><Gift size={12}/> Cortesía</span> : null}
-                        {p.nombre}
-                      </td>
-                      <td className="p-3 text-slate-600">${p.costo.toLocaleString()}</td>
-                      <td className="p-3 font-bold text-slate-900">${p.precio.toLocaleString()}</td>
-                      <td className="p-3 text-emerald-600 font-semibold">${(p.precio - p.costo).toLocaleString()}</td>
-                      <td className="p-3 font-bold">
-                        {p.stock <= 0 ? <span className="text-red-600">0 (AGOTADO)</span> : `${p.stock} unidades`}
-                      </td>
-                      <td className="p-3 text-slate-600">{p.vencimiento}</td>
-                      <td className="p-3 no-print">
-                        <button 
-                          onClick={() => eliminarProducto(p.id)}
-                          className="text-red-500 hover:text-red-700 p-1 rounded transition"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
+                  {productos.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" className="text-center p-4 text-slate-400">No hay productos en el inventario.</td>
                     </tr>
-                  ))}
+                  ) : (
+                    productos.map((p) => {
+                      const estaExpandido = productoExpandidoId === p.id;
+                      return (
+                        <React.Fragment key={p.id}>
+                          <tr 
+                            onClick={() => setProductoExpandidoId(estaExpandido ? null : p.id)}
+                            className="border-b border-slate-100 hover:bg-indigo-50/40 cursor-pointer transition"
+                          >
+                            <td className="p-3 text-slate-400">
+                              {estaExpandido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </td>
+                            <td className="p-3 font-semibold text-slate-900">{p.nombre}</td>
+                            <td className="p-3">
+                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs border border-slate-200 font-medium">
+                                {p.categoria || 'Sin categoría'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-slate-600">${p.costo}</td>
+                            <td className="p-3 font-bold text-slate-900">${p.precio}</td>
+                            <td className="p-3">
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                p.stock <= 0 ? 'bg-red-100 text-red-800' : p.stock <= 3 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                              }`}>
+                                {p.stock <= 0 ? 'Agotado (0)' : `${p.stock} un.`}
+                              </span>
+                            </td>
+                            <td className="p-3 text-slate-600">{p.vencimiento}</td>
+                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex justify-center items-center gap-1">
+                                <button 
+                                  onClick={() => iniciarEdicion(p)}
+                                  className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
+                                  title="Editar este producto"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => eliminarProducto(p.id)}
+                                  className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
+                                  title="Eliminar este producto"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* Fila desplegable con detalle individual */}
+                          {estaExpandido && (
+                            <tr className="bg-slate-50/90 border-b border-indigo-100">
+                              <td colSpan="8" className="p-4">
+                                <div className="bg-white p-4 rounded-lg border border-indigo-100 shadow-inner grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+                                  <div>
+                                    <p className="text-slate-400 font-medium">Nombre Completo</p>
+                                    <p className="font-bold text-slate-800 text-sm">{p.nombre}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-slate-400 font-medium">Margen Ganancia Unitaria</p>
+                                    <p className="font-bold text-emerald-600 text-sm">${p.precio - p.costo}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-slate-400 font-medium">Valor Total Inventario</p>
+                                    <p className="font-bold text-indigo-600 text-sm">${p.precio * p.stock}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-slate-400 font-medium">Fecha de Vencimiento</p>
+                                    <p className="font-semibold text-slate-700">{p.vencimiento || 'No registrada'}</p>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -765,31 +919,69 @@ export default function App() {
         </>
       )}
 
-      {/* ==================== PESTAÑA CARTA / CATÁLOGO DE PRODUCTOS ==================== */}
-      {pestana === 'catalogo' && (
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between border-b pb-4 mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <Coffee className="text-indigo-600" /> Carta de Productos & Bebidas
-              </h2>
-              <p className="text-xs text-slate-500">Listado de oferta disponible para el público</p>
-            </div>
+      {/* ==================== PESTAÑA CATEGORÍAS ==================== */}
+      {pestana === 'categorias' && (
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
+              <Tag size={20} className="text-indigo-600" /> Nueva Categoría
+            </h2>
+            <form onSubmit={handleAgregarCategoria} className="flex gap-2">
+              <input 
+                type="text"
+                placeholder="Nombre de la categoría (ej. Bebidas, Snacks, Galletas)"
+                value={nuevaCategoria}
+                onChange={(e) => setNuevaCategoria(e.target.value)}
+                className="flex-1 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+              <button 
+                type="submit"
+                className="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+              >
+                Agregar
+              </button>
+            </form>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <h2 className="text-lg font-bold mb-4 text-slate-800">Categorías Existentes</h2>
+            <ul className="divide-y divide-slate-100">
+              {categorias.length === 0 ? (
+                <p className="text-slate-400 text-sm text-center py-4">No se han creado categorías aún.</p>
+              ) : (
+                categorias.map((cat) => (
+                  <li key={cat.id} className="flex justify-between items-center py-3">
+                    <span className="font-medium text-slate-800 text-sm">{cat.nombre}</span>
+                    <button
+                      onClick={() => eliminarCategoria(cat.id)}
+                      className="text-red-500 hover:text-red-700 p-1 rounded transition"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== PESTAÑA CARTA DE PRODUCTOS ==================== */}
+      {pestana === 'catalogo' && (
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+          <h2 className="text-xl font-bold mb-6 text-slate-900 text-center">Menú de Productos</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {productos.map((p) => (
-              <div key={p.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:shadow-md transition">
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-bold text-base text-slate-800">{p.nombre}</h3>
-                  <span className="bg-indigo-600 text-white font-bold text-sm px-2.5 py-1 rounded-lg">
-                    {p.precio === 0 ? '¡GRATIS!' : `$${p.precio.toLocaleString()}`}
+              <div key={p.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-slate-900">{p.nombre}</h3>
+                  <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-medium border border-indigo-100">
+                    {p.categoria || 'General'}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mb-3">{p.descripcion || 'Producto de excelente calidad.'}</p>
-                <div className="flex justify-between items-center text-xs text-slate-400 border-t pt-2 border-slate-200">
-                  <span>Disponibilidad: <strong>{p.stock > 0 ? `${p.stock} ud.` : 'Agotado'}</strong></span>
-                  {p.precio === 0 && <span className="text-amber-600 font-semibold flex items-center gap-1"><Gift size={12}/> Obsequio</span>}
+                <div className="text-right">
+                  <p className="text-lg font-bold text-indigo-600">${p.precio}</p>
+                  <p className="text-xs text-slate-500">{p.stock > 0 ? `Disponible: ${p.stock}` : 'Agotado'}</p>
                 </div>
               </div>
             ))}
