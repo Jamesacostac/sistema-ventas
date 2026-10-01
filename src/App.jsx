@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc 
+  collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, writeBatch, getDocs, query, where
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegram';
@@ -10,7 +10,7 @@ import {
 import { 
   CheckCircle, XCircle, FileText, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, X
+  Edit2, ChevronDown, ChevronUp, Save, X, Wallet, TrendingDown, RefreshCw, Printer
 } from 'lucide-react';
 
 export default function App() {
@@ -18,13 +18,15 @@ export default function App() {
   const [productos, setProductos] = useState([]);
   const [ventas, setVentas] = useState([]);
   const [categorias, setCategorias] = useState([]);
+  const [gastos, setGastos] = useState([]);
+  const [cajaInicial, setCajaInicial] = useState(0);
+  const [cajaDocId, setCajaDocId] = useState(null);
   const [cargando, setCargando] = useState(true);
 
-  // Estado para expandir detalle individual en la tabla de productos
+  // Estados desplegables y edición
   const [productoExpandidoId, setProductoExpandidoId] = useState(null);
-
-  // Estado para editar un producto existente
   const [editandoProductoId, setEditandoProductoId] = useState(null);
+  const [nuevoEfectivoBaseInput, setNuevoEfectivoBaseInput] = useState('');
 
   // Referencias para listener de Telegram
   const productosRef = useRef(productos);
@@ -36,25 +38,41 @@ export default function App() {
   // Escuchar Firestore en tiempo real
   useEffect(() => {
     const unsubProductos = onSnapshot(collection(db, 'productos'), (snapshot) => {
-      const listaProds = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setProductos(listaProds);
+      setProductos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
     const unsubVentas = onSnapshot(collection(db, 'ventas'), (snapshot) => {
-      const listaVentas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setVentas(listaVentas.sort((a, b) => b.id - a.id));
+      const lista = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setVentas(lista.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
       setCargando(false);
     });
 
     const unsubCategorias = onSnapshot(collection(db, 'categorias'), (snapshot) => {
-      const listaCats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setCategorias(listaCats);
+      setCategorias(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    const unsubGastos = onSnapshot(collection(db, 'gastos'), (snapshot) => {
+      const listaG = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setGastos(listaG.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
+    });
+
+    const unsubCaja = onSnapshot(collection(db, 'caja_base'), (snapshot) => {
+      if (!snapshot.empty) {
+        const docCaja = snapshot.docs[0];
+        setCajaInicial(docCaja.data().monto || 0);
+        setCajaDocId(docCaja.id);
+      } else {
+        setCajaInicial(0);
+        setCajaDocId(null);
+      }
     });
 
     return () => {
       unsubProductos();
       unsubVentas();
       unsubCategorias();
+      unsubGastos();
+      unsubCaja();
     };
   }, []);
 
@@ -81,22 +99,15 @@ export default function App() {
 
   // Formularios
   const [formVenta, setFormVenta] = useState({
-    cliente: '',
-    productoId: '',
-    cantidad: 1,
-    pagado: true,
-    medioPago: 'Efectivo',
-    otroMedioPago: ''
+    cliente: '', productoId: '', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: ''
   });
 
   const [formProducto, setFormProducto] = useState({
-    nombre: '',
-    costo: '',
-    precio: '',
-    stock: '',
-    vencimiento: '',
-    categoria: '',
-    descripcion: ''
+    nombre: '', costo: '', precio: '', stock: '', vencimiento: '', categoria: '', descripcion: ''
+  });
+
+  const [formGasto, setFormGasto] = useState({
+    concepto: '', monto: '', tipo: 'Proveedor', detalle: ''
   });
 
   const [nuevaCategoria, setNuevaCategoria] = useState('');
@@ -138,23 +149,16 @@ export default function App() {
     }
 
     let textoAlerta = `🚨 <b>REPORTE DE PRODUCTOS A REPONER</b> 🚨\n\n`;
-
     if (agotados.length > 0) {
       textoAlerta += `❌ <b>PRODUCTOS AGOTADOS (Stock 0):</b>\n`;
-      agotados.forEach(p => {
-        textoAlerta += `• <b>${p.nombre}</b> (Vencimiento: ${p.vencimiento})\n`;
-      });
+      agotados.forEach(p => { textoAlerta += `• <b>${p.nombre}</b> (Vencimiento: ${p.vencimiento})\n`; });
       textoAlerta += `\n`;
     }
-
     if (porAgotarse.length > 0) {
       textoAlerta += `⚠️ <b>POCOS EN STOCK (3 o menos):</b>\n`;
-      porAgotarse.forEach(p => {
-        textoAlerta += `• <b>${p.nombre}</b>: Quedan ${p.stock} unidades\n`;
-      });
+      porAgotarse.forEach(p => { textoAlerta += `• <b>${p.nombre}</b>: Quedan ${p.stock} unidades\n`; });
       textoAlerta += `\n`;
     }
-
     textoAlerta += `🛒 <i>Por favor realizar pedido de compras.</i>`;
 
     return await enviarMensajeTelegram(textoAlerta);
@@ -167,14 +171,8 @@ export default function App() {
     if (!prod) return alert("Selecciona un producto válido.");
 
     const cantidad = Number(formVenta.cantidad);
-
-    if (prod.stock <= 0) {
-      return alert(`❌ No se puede realizar la venta: El producto "${prod.nombre}" está totalmente agotado.`);
-    }
-
-    if (cantidad > prod.stock) {
-      return alert(`❌ Stock insuficiente: Solo quedan ${prod.stock} unidades de "${prod.nombre}" disponibles.`);
-    }
+    if (prod.stock <= 0) return alert(`❌ No se puede realizar la venta: El producto "${prod.nombre}" está agotado.`);
+    if (cantidad > prod.stock) return alert(`❌ Stock insuficiente: Solo quedan ${prod.stock} unidades disponibles.`);
 
     const total = prod.precio * cantidad;
     const costoTotal = prod.costo * cantidad;
@@ -203,13 +201,12 @@ export default function App() {
 
       if (nuevoStock <= 3) {
         const estadoTexto = nuevoStock === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${nuevoStock} UNIDADES</b>`;
-        const mensajeAlerta = 
+        enviarMensajeTelegram(
           `🚨 <b>ALERTA DE REPOSICIÓN DE INVENTARIO</b> 🚨\n\n` +
           `📦 Producto: <b>${prod.nombre}</b>\n` +
           `📊 Estado: ${estadoTexto}\n` +
-          `🔔 <i>Por favor coordinar compra / reposición con proveedores.</i>`;
-        
-        enviarMensajeTelegram(mensajeAlerta);
+          `🔔 <i>Por favor coordinar compra / reposición con proveedores.</i>`
+        );
       }
 
       setFormVenta({ cliente: '', productoId: '', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: '' });
@@ -218,7 +215,6 @@ export default function App() {
     }
   };
 
-  // Crear o Editar Producto
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     try {
@@ -264,10 +260,76 @@ export default function App() {
     setFormProducto({ nombre: '', costo: '', precio: '', stock: '', vencimiento: '', categoria: '', descripcion: '' });
   };
 
+  const handleGuardarEfectivoBase = async (e) => {
+    e.preventDefault();
+    const monto = Number(nuevoEfectivoBaseInput);
+    if (isNaN(monto)) return alert("Ingresa una cantidad válida.");
+
+    try {
+      if (cajaDocId) {
+        await updateDoc(doc(db, 'caja_base', cajaDocId), { monto, fechaActualizacion: new Date().toISOString() });
+      } else {
+        await addDoc(collection(db, 'caja_base'), { monto, fechaActualizacion: new Date().toISOString() });
+      }
+      setNuevoEfectivoBaseInput('');
+      alert("Efectivo base no registrado actualizado correctamente.");
+    } catch (error) {
+      alert("Error al guardar efectivo base: " + error.message);
+    }
+  };
+
+  const handleAgregarGasto = async (e) => {
+    e.preventDefault();
+    const monto = Number(formGasto.monto);
+    if (!formGasto.concepto.trim() || isNaN(monto) || monto <= 0) {
+      return alert("Por favor completa el concepto y un monto mayor a cero.");
+    }
+
+    try {
+      await addDoc(collection(db, 'gastos'), {
+        concepto: formGasto.concepto.trim(),
+        monto,
+        tipo: formGasto.tipo,
+        detalle: formGasto.detalle.trim() || 'Sin observaciones',
+        fecha: new Date().toISOString().split('T')[0],
+        creadoEn: Date.now()
+      });
+
+      setFormGasto({ concepto: '', monto: '', tipo: 'Proveedor', detalle: '' });
+    } catch (error) {
+      alert("Error al registrar el gasto: " + error.message);
+    }
+  };
+
+  const eliminarGasto = async (id) => {
+    if (confirm("¿Eliminar este registro de gasto?")) {
+      await deleteDoc(doc(db, 'gastos', id));
+    }
+  };
+
+  const handleBorrarVentasPagadas = async () => {
+    const ventasPagadasList = ventas.filter(v => v.pagado);
+    if (ventasPagadasList.length === 0) {
+      return alert("No hay ventas pagadas para eliminar.");
+    }
+
+    if (confirm(`¿Estás seguro de eliminar las ${ventasPagadasList.length} ventas ya PAGADAS? Esta acción conservará solo las pendientes por cobrar (fiados).`)) {
+      try {
+        const batch = writeBatch(db);
+        ventasPagadasList.forEach(v => {
+          batch.delete(doc(db, 'ventas', v.id));
+        });
+        await batch.commit();
+        alert("Se eliminaron con éxito las ventas pagadas.");
+      } catch (error) {
+        alert("Error al borrar ventas pagadas: " + error.message);
+      }
+    }
+  };
+
   const handleAgregarCategoria = async (e) => {
     e.preventDefault();
     if (!nuevaCategoria.trim()) return;
-
     try {
       await addDoc(collection(db, 'categorias'), { nombre: nuevaCategoria.trim() });
       setNuevaCategoria('');
@@ -277,15 +339,11 @@ export default function App() {
   };
 
   const eliminarCategoria = async (id) => {
-    if (confirm("¿Eliminar esta categoría?")) {
-      await deleteDoc(doc(db, 'categorias', id));
-    }
+    if (confirm("¿Eliminar esta categoría?")) await deleteDoc(doc(db, 'categorias', id));
   };
 
   const eliminarProducto = async (id) => {
-    if (confirm("¿Eliminar este producto del inventario?")) {
-      await deleteDoc(doc(db, 'productos', id));
-    }
+    if (confirm("¿Eliminar este producto del inventario?")) await deleteDoc(doc(db, 'productos', id));
   };
 
   const togglePago = async (id, estadoActual) => {
@@ -293,13 +351,15 @@ export default function App() {
   };
 
   const eliminarVenta = async (id) => {
-    if (confirm("¿Eliminar esta venta?")) {
-      await deleteDoc(doc(db, 'ventas', id));
-    }
+    if (confirm("¿Eliminar esta venta?")) await deleteDoc(doc(db, 'ventas', id));
   };
 
-  // Cuentas financieras
+  // Cuentas financieras dinámicas
   const ventasPagadas = ventas.filter(v => v.pagado);
+  const totalVentasEfectivoCobrado = ventasPagadas
+    .filter(v => v.medioPago === 'Efectivo')
+    .reduce((acc, v) => acc + v.total, 0);
+
   const totalIngresosDia = ventasPagadas.reduce((acc, v) => acc + v.total, 0);
   const totalReposicionDia = ventasPagadas.reduce((acc, v) => acc + v.costoTotal, 0);
   const gananciaBrutaDia = ventasPagadas.reduce((acc, v) => acc + v.ganancia, 0);
@@ -307,6 +367,17 @@ export default function App() {
   const fondoAhorro = gananciaBrutaDia * 0.15;
   const gananciaRepartible = gananciaBrutaDia - fondoAhorro;
   const salarioPorSocio = gananciaRepartible / 3;
+
+  const totalGastosRegistrados = gastos.reduce((acc, g) => acc + g.monto, 0);
+  const gastosEnReposiciones = gastos
+    .filter(g => g.tipo === 'Proveedor' || g.tipo === 'Compra Productos')
+    .reduce((acc, g) => acc + g.monto, 0);
+
+  // Efectivo Total Vivo = Efectivo base inicial + Ventas cobradas en efectivo - Gastos totales
+  const efectivoTotalEnCaja = cajaInicial + totalVentasEfectivoCobrado - totalGastosRegistrados;
+
+  // Punto cero de reposición = Retorno de inversión acumulado vs compras/gastos en proveedores
+  const estadoPuntoCeroReposicion = totalReposicionDia - gastosEnReposiciones;
 
   const handleEnviarReporteTelegram = async () => {
     const exito = await generarYEnviarReporteCierre(ventas);
@@ -369,15 +440,17 @@ export default function App() {
           @page { size: letter portrait; margin: 1cm; }
           body { background-color: #ffffff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           .no-print { display: none !important; }
+          .print-only { display: block !important; }
           .print-card { border: 1px solid #e2e8f0 !important; box-shadow: none !important; break-inside: avoid; }
           .print-grid { display: grid !important; grid-template-cols: repeat(2, minmax(0, 1fr)) !important; gap: 12px !important; }
         }
+        .print-only { display: none; }
       `}</style>
 
       {/* Encabezado Principal */}
       <header className="mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col lg:flex-row justify-between items-center gap-4 print-card print:mb-4">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold text-slate-900">Informe de Cierre y Ventas</h1>
+          <h1 className="text-xl md:text-2xl font-bold text-slate-900">Sistema de Control Financiero y Ventas</h1>
           <p className="text-xs md:text-sm text-slate-500">
             Comestibles — Fecha: {new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
@@ -392,6 +465,14 @@ export default function App() {
             }`}
           >
             <ShoppingBag size={16} /> Ventas & Cierre
+          </button>
+          <button 
+            onClick={() => setPestana('estado_cuenta')}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
+              pestana === 'estado_cuenta' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Wallet size={16} /> Estado de Cuenta
           </button>
           <button 
             onClick={() => setPestana('inventario')}
@@ -415,7 +496,7 @@ export default function App() {
               pestana === 'catalogo' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <BookOpen size={16} /> Carta de Productos
+            <BookOpen size={16} /> Carta
           </button>
         </div>
 
@@ -433,12 +514,6 @@ export default function App() {
             className="flex items-center gap-1.5 bg-sky-600 text-white px-3 py-2 rounded-lg hover:bg-sky-700 transition shadow text-xs md:text-sm font-semibold"
           >
             <Send size={16} /> Enviar Cierre
-          </button>
-          <button 
-            onClick={() => window.print()}
-            className="flex items-center gap-1.5 bg-slate-800 text-white px-3 py-2 rounded-lg hover:bg-slate-900 transition shadow text-xs md:text-sm font-semibold"
-          >
-            <FileText size={16} /> Exportar PDF
           </button>
         </div>
       </header>
@@ -493,11 +568,7 @@ export default function App() {
                 >
                   <option value="">Seleccionar Producto...</option>
                   {productos.map((p) => (
-                    <option 
-                      key={p.id} 
-                      value={p.id}
-                      disabled={p.stock <= 0}
-                    >
+                    <option key={p.id} value={p.id} disabled={p.stock <= 0}>
                       {p.precio === 0 ? '🎁 [REGALO] ' : ''}
                       {p.nombre} — ${p.precio} (Stock: {p.stock})
                     </option>
@@ -568,8 +639,26 @@ export default function App() {
 
           {/* Tabla de ventas y lateral de inventario rápido */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 print:mb-4">
-            <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm no-print">
-              <h2 className="text-lg font-bold mb-4 text-slate-800">Registro de Ventas del Día</h2>
+            <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm print-card">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
+                <h2 className="text-lg font-bold text-slate-800">Registro de Ventas del Día</h2>
+                <div className="no-print flex items-center gap-2 flex-wrap">
+                  <button 
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 bg-slate-800 text-white px-3 py-1.5 rounded-lg hover:bg-slate-900 transition text-xs font-semibold shadow"
+                  >
+                    <Printer size={14} /> Generar Cierre (PDF)
+                  </button>
+                  <button 
+                    onClick={handleBorrarVentasPagadas}
+                    className="flex items-center gap-1.5 bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition text-xs font-semibold shadow"
+                    title="Elimina solo las ventas que ya están pagadas y conserva las pendientes"
+                  >
+                    <Trash2 size={14} /> Limpiar Ventas Pagadas
+                  </button>
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse min-w-[500px]">
                   <thead>
@@ -580,7 +669,7 @@ export default function App() {
                       <th className="p-3">Total</th>
                       <th className="p-3">Ganancia</th>
                       <th className="p-3">Estado</th>
-                      <th className="p-3 text-center">Acción</th>
+                      <th className="p-3 text-center no-print">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -608,15 +697,18 @@ export default function App() {
                           <td className="p-3">
                             <button 
                               onClick={() => togglePago(v.id, v.pagado)}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 ${
+                              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 no-print ${
                                 v.pagado ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'
                               }`}
                             >
                               {v.pagado ? <CheckCircle size={14} /> : <XCircle size={14} />}
                               {v.pagado ? 'Pagado' : 'Pendiente'}
                             </button>
+                            <span className="print-only text-xs font-semibold">
+                              {v.pagado ? 'Pagado' : 'Pendiente'}
+                            </span>
                           </td>
-                          <td className="p-3 text-center">
+                          <td className="p-3 text-center no-print">
                             <button 
                               onClick={() => eliminarVenta(v.id)} 
                               className="text-red-500 hover:text-red-700 p-1 rounded"
@@ -633,7 +725,7 @@ export default function App() {
             </div>
 
             {/* Lateral Resumen Stock */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card lg:col-span-1">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card lg:col-span-1 no-print">
               <h2 className="text-base font-bold mb-3 text-slate-800">Estado Rápido de Stock</h2>
               <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
                 {productos.map((p) => (
@@ -691,6 +783,192 @@ export default function App() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ==================== NUEVA PESTAÑA ESTADO DE CUENTA ==================== */}
+      {pestana === 'estado_cuenta' && (
+        <div className="space-y-6">
+          {/* Tarjetas Dinámicas de Efectivo y Punto Cero */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-gradient-to-br from-indigo-900 to-indigo-700 text-white p-5 rounded-xl shadow-sm">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-xs uppercase font-semibold text-indigo-200">Efectivo Total en Caja (Vivo)</p>
+                <Wallet size={20} className="text-indigo-300" />
+              </div>
+              <h3 className="text-2xl md:text-3xl font-extrabold">${efectivoTotalEnCaja.toLocaleString()}</h3>
+              <p className="text-xs text-indigo-200 mt-2">
+                Base ({cajaInicial.toLocaleString()}) + Ventas Efectivo ({totalVentasEfectivoCobrado.toLocaleString()}) - Gastos ({totalGastosRegistrados.toLocaleString()})
+              </p>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase">Recuperación Reposiciones (Punto Cero)</p>
+                <RefreshCw size={20} className="text-indigo-600" />
+              </div>
+              <h3 className={`text-2xl md:text-3xl font-extrabold ${estadoPuntoCeroReposicion >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                ${estadoPuntoCeroReposicion.toLocaleString()}
+              </h3>
+              <p className="text-xs text-slate-500 mt-2">
+                {estadoPuntoCeroReposicion < 0 
+                  ? `Falta por recuperar $${Math.abs(estadoPuntoCeroReposicion).toLocaleString()} para quedar en $0.`
+                  : estadoPuntoCeroReposicion === 0
+                  ? '¡Punto de equilibrio alcanzado! ($0 en saldo de reposición).'
+                  : `¡Dinero duplicado / Ganancia neta sobre la reposición: +$${estadoPuntoCeroReposicion.toLocaleString()}!`}
+              </p>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase">Gastos Totales Registrados</p>
+                <TrendingDown size={20} className="text-red-500" />
+              </div>
+              <h3 className="text-2xl md:text-3xl font-extrabold text-red-600">${totalGastosRegistrados.toLocaleString()}</h3>
+              <p className="text-xs text-slate-500 mt-2">
+                Incluye proveedores (${gastosEnReposiciones.toLocaleString()}) y otros egresos.
+              </p>
+            </div>
+          </div>
+
+          {/* Formulario Efectivo No Registrado (Saldo Inicial) */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
+              <DollarSign size={18} className="text-emerald-600" /> Ajustar Efectivo Base No Registrado
+            </h2>
+            <p className="text-xs text-slate-500 mb-4">
+              Ingresa la cantidad de dinero acumulado físicamente que no se había registrado previamente. La app lo sumará como base a las ventas futuras.
+            </p>
+            <form onSubmit={handleGuardarEfectivoBase} className="flex gap-3 max-w-md">
+              <input 
+                type="number" 
+                required
+                min="0"
+                placeholder={`Actual: $${cajaInicial}`}
+                value={nuevoEfectivoBaseInput}
+                onChange={(e) => setNuevoEfectivoBaseInput(e.target.value)}
+                className="flex-1 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+              <button 
+                type="submit" 
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg transition text-sm flex items-center gap-1"
+              >
+                <Save size={16} /> Guardar Base
+              </button>
+            </form>
+          </div>
+
+          {/* Formulario y Tabla de Gastos */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+              <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <PlusCircle size={18} className="text-red-600" /> Registrar Nuevo Gasto
+              </h2>
+              <form onSubmit={handleAgregarGasto} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Concepto / Nombre</label>
+                  <input 
+                    type="text"
+                    required
+                    placeholder="Ej. Pago Proveedor Bebidas"
+                    value={formGasto.concepto}
+                    onChange={(e) => setFormGasto({ ...formGasto, concepto: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Monto ($)</label>
+                  <input 
+                    type="number"
+                    required
+                    min="1"
+                    placeholder="Ej. 50000"
+                    value={formGasto.monto}
+                    onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Gasto</label>
+                  <select 
+                    value={formGasto.tipo}
+                    onChange={(e) => setFormGasto({ ...formGasto, tipo: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium"
+                  >
+                    <option value="Proveedor">Proveedor (Reposición Stock)</option>
+                    <option value="Compra Productos">Compra Productos</option>
+                    <option value="Servicios / Operativo">Servicios / Operativo</option>
+                    <option value="Otro">Otro Gasto</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Detalle / Observaciones</label>
+                  <textarea 
+                    rows="2"
+                    placeholder="Detalles adicionales..."
+                    value={formGasto.detalle}
+                    onChange={(e) => setFormGasto({ ...formGasto, detalle: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <button 
+                  type="submit"
+                  className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold p-2 rounded-lg transition text-sm"
+                >
+                  Guardar Gasto
+                </button>
+              </form>
+            </div>
+
+            <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+              <h2 className="text-base font-bold text-slate-800 mb-4">Historial de Gastos y Salidas de Dinero</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse min-w-[500px]">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Concepto</th>
+                      <th className="p-3">Tipo</th>
+                      <th className="p-3">Monto</th>
+                      <th className="p-3 text-center">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gastos.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="text-center p-4 text-slate-400">No se han registrado gastos aún.</td>
+                      </tr>
+                    ) : (
+                      gastos.map((g) => (
+                        <tr key={g.id} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="p-3 text-slate-500 text-xs">{g.fecha}</td>
+                          <td className="p-3 font-medium text-slate-900">{g.concepto}</td>
+                          <td className="p-3">
+                            <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-medium border border-red-100">
+                              {g.tipo}
+                            </span>
+                          </td>
+                          <td className="p-3 font-bold text-red-600">-${g.monto.toLocaleString()}</td>
+                          <td className="p-3 text-center">
+                            <button 
+                              onClick={() => eliminarGasto(g.id)}
+                              className="text-red-500 hover:text-red-700 p-1 rounded"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ==================== PESTAÑA INVENTARIO ==================== */}
