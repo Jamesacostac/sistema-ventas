@@ -8,9 +8,9 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line 
 } from 'recharts';
 import { 
-  CheckCircle, XCircle, FileText, PlusCircle, Trash2, ShoppingBag, 
+  CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, X, Wallet, TrendingDown, RefreshCw, Printer
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X
 } from 'lucide-react';
 
 export default function App() {
@@ -25,6 +25,7 @@ export default function App() {
 
   // Estados desplegables y edición
   const [productoExpandidoId, setProductoExpandidoId] = useState(null);
+  const [editandoProductoId, setEditandoProductoId] = useState(null);
   const [nuevoEfectivoBaseInput, setNuevoEfectivoBaseInput] = useState('');
 
   // Referencias para listener de Telegram
@@ -33,6 +34,37 @@ export default function App() {
 
   useEffect(() => { productosRef.current = productos; }, [productos]);
   useEffect(() => { ventasRef.current = ventas; }, [ventas]);
+
+  // Normalizador de lotes para garantizar compatibilidad con datos viejos
+  const obtenerLotesNorm = (p) => {
+    if (Array.isArray(p.lotes) && p.lotes.length > 0) {
+      return p.lotes;
+    }
+    // Si no tiene arreglo 'lotes', migra temporalmente los campos antiguos 'stock' y 'vencimiento'
+    const stockAntiguo = Number(p.stock) || 0;
+    const vencAntiguo = p.vencimiento || 'Sin fecha';
+    if (stockAntiguo > 0 || vencAntiguo !== 'Sin fecha') {
+      return [{
+        id: 'lote_legacy_' + (p.id || '1'),
+        variante: p.nombre || 'General',
+        cantidad: stockAntiguo,
+        vencimiento: vencAntiguo
+      }];
+    }
+    return [];
+  };
+
+  const getStockTotalProducto = (p) => {
+    const lotes = obtenerLotesNorm(p);
+    return lotes.reduce((acc, l) => acc + Number(l.cantidad || 0), 0);
+  };
+
+  const getProximoVencimientoProducto = (p) => {
+    const lotes = obtenerLotesNorm(p);
+    if (lotes.length === 0) return 'N/A';
+    const fechas = lotes.map(l => l.vencimiento).filter(f => f && f !== 'Sin fecha').sort();
+    return fechas[0] || 'N/A';
+  };
 
   // Escuchar Firestore en tiempo real
   useEffect(() => {
@@ -102,7 +134,7 @@ export default function App() {
   });
 
   const [formProducto, setFormProducto] = useState({
-    productoId: '', // Vacío para nuevo producto, o ID para añadir lote
+    productoId: '', 
     nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: ''
   });
 
@@ -111,18 +143,6 @@ export default function App() {
   });
 
   const [nuevaCategoria, setNuevaCategoria] = useState('');
-
-  // Auxiliares para lotes y stock
-  const getStockTotalProducto = (lotes) => {
-    if (!lotes || !Array.isArray(lotes)) return 0;
-    return lotes.reduce((acc, l) => acc + Number(l.cantidad || 0), 0);
-  };
-
-  const getProximoVencimientoProducto = (lotes) => {
-    if (!lotes || !Array.isArray(lotes) || lotes.length === 0) return 'N/A';
-    const fechas = lotes.map(l => l.vencimiento).filter(Boolean).sort();
-    return fechas[0] || 'N/A';
-  };
 
   // Reportes Telegram
   const generarYEnviarReporteCierre = async (listaVentas) => {
@@ -153,9 +173,9 @@ export default function App() {
 
   const generarYEnviarAlertaStock = async (listaProductos) => {
     const prods = listaProductos || productos;
-    const agotados = prods.filter(p => getStockTotalProducto(p.lotes) <= 0);
+    const agotados = prods.filter(p => getStockTotalProducto(p) <= 0);
     const porAgotarse = prods.filter(p => {
-      const st = getStockTotalProducto(p.lotes);
+      const st = getStockTotalProducto(p);
       return st > 0 && st <= 3;
     });
 
@@ -172,7 +192,7 @@ export default function App() {
     if (porAgotarse.length > 0) {
       textoAlerta += `⚠️ <b>POCOS EN STOCK (3 o menos):</b>\n`;
       porAgotarse.forEach(p => { 
-        textoAlerta += `• <b>${p.nombre}</b>: Quedan ${getStockTotalProducto(p.lotes)} unidades\n`; 
+        textoAlerta += `• <b>${p.nombre}</b>: Quedan ${getStockTotalProducto(p)} unidades\n`; 
       });
       textoAlerta += `\n`;
     }
@@ -188,12 +208,12 @@ export default function App() {
     if (!prod) return alert("Selecciona un producto válido.");
 
     let cantidadARestar = Number(formVenta.cantidad);
-    const stockDisponible = getStockTotalProducto(prod.lotes);
+    const stockDisponible = getStockTotalProducto(prod);
 
     if (stockDisponible <= 0) return alert(`❌ No se puede realizar la venta: "${prod.nombre}" está agotado.`);
     if (cantidadARestar > stockDisponible) return alert(`❌ Stock insuficiente: Quedan ${stockDisponible} unidades.`);
 
-    let lotesActualizados = JSON.parse(JSON.stringify(prod.lotes || []));
+    let lotesActualizados = JSON.parse(JSON.stringify(obtenerLotesNorm(prod)));
     lotesActualizados.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
 
     for (let lote of lotesActualizados) {
@@ -241,9 +261,12 @@ export default function App() {
         creadoEn: Date.now()
       });
 
-      await updateDoc(doc(db, 'productos', prod.id), { lotes: lotesActualizados });
+      const nuevoStockTotal = lotesActualizados.reduce((acc, l) => acc + l.cantidad, 0);
+      await updateDoc(doc(db, 'productos', prod.id), { 
+        lotes: lotesActualizados,
+        stock: nuevoStockTotal 
+      });
 
-      const nuevoStockTotal = getStockTotalProducto(lotesActualizados);
       if (nuevoStockTotal <= 3) {
         const estadoTexto = nuevoStockTotal === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${nuevoStockTotal} UNIDADES</b>`;
         enviarMensajeTelegram(
@@ -260,54 +283,117 @@ export default function App() {
     }
   };
 
-  // Guardar Producto o Nuevo Lote
+  // Iniciar edición de datos del producto base
+  const iniciarEdicionProductoBase = (prod) => {
+    setEditandoProductoId(prod.id);
+    setFormProducto({
+      productoId: '',
+      nombre: prod.nombre || '',
+      costo: prod.costo || '',
+      precio: prod.precio || '',
+      categoria: prod.categoria || '',
+      descripcion: prod.descripcion || '',
+      variante: 'Limonada',
+      cantidad: '',
+      vencimiento: ''
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelarEdicion = () => {
+    setEditandoProductoId(null);
+    setFormProducto({ productoId: '', nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: '' });
+  };
+
+  // Guardar / Actualizar Producto o Añadir Lote
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
-    if (!formProducto.cantidad || !formProducto.vencimiento) return alert("Completa la cantidad y vencimiento.");
-
-    const cant = Number(formProducto.cantidad);
-    const prodExistente = productos.find(p => p.id === formProducto.productoId);
 
     try {
-      if (prodExistente) {
-        let nuevosLotes = JSON.parse(JSON.stringify(prodExistente.lotes || []));
-        const idx = nuevosLotes.findIndex(
-          l => l.variante.toLowerCase() === formProducto.variante.toLowerCase() && l.vencimiento === formProducto.vencimiento
-        );
+      if (editandoProductoId) {
+        // Actualizar datos base del producto
+        await updateDoc(doc(db, 'productos', editandoProductoId), {
+          nombre: formProducto.nombre.trim(),
+          costo: Number(formProducto.costo),
+          precio: Number(formProducto.precio),
+          categoria: formProducto.categoria || 'Sin categoría'
+        });
 
-        if (idx >= 0) {
-          nuevosLotes[idx].cantidad += cant;
-        } else {
+        // Si además llenó cantidad y fecha, se agrega como lote
+        if (formProducto.cantidad && formProducto.vencimiento) {
+          const prodObj = productos.find(p => p.id === editandoProductoId);
+          let nuevosLotes = JSON.parse(JSON.stringify(obtenerLotesNorm(prodObj || {})));
+          const cant = Number(formProducto.cantidad);
+
           nuevosLotes.push({
             id: Date.now().toString(),
             variante: formProducto.variante || 'General',
             cantidad: cant,
             vencimiento: formProducto.vencimiento
           });
+
+          const nuevoStockTotal = nuevosLotes.reduce((acc, l) => acc + l.cantidad, 0);
+          await updateDoc(doc(db, 'productos', editandoProductoId), { 
+            lotes: nuevosLotes,
+            stock: nuevoStockTotal
+          });
         }
 
-        nuevosLotes.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
-        await updateDoc(doc(db, 'productos', prodExistente.id), { lotes: nuevosLotes });
+        setEditandoProductoId(null);
+        alert("Producto actualizado con éxito.");
       } else {
-        if (!formProducto.nombre || !formProducto.costo || !formProducto.precio) {
-          return alert("Completa nombre, costo y precio para el nuevo producto.");
+        if (!formProducto.cantidad || !formProducto.vencimiento) {
+          return alert("Por favor ingresa la cantidad y fecha de vencimiento del lote.");
         }
 
-        await addDoc(collection(db, 'productos'), {
-          nombre: formProducto.nombre.trim(),
-          costo: Number(formProducto.costo),
-          precio: Number(formProducto.precio),
-          categoria: formProducto.categoria || 'Sin categoría',
-          descripcion: formProducto.descripcion || 'Sin descripción',
-          lotes: [
-            {
+        const cant = Number(formProducto.cantidad);
+        const prodExistente = productos.find(p => p.id === formProducto.productoId);
+
+        if (prodExistente) {
+          let nuevosLotes = JSON.parse(JSON.stringify(obtenerLotesNorm(prodExistente)));
+          const idx = nuevosLotes.findIndex(
+            l => l.variante.toLowerCase() === formProducto.variante.toLowerCase() && l.vencimiento === formProducto.vencimiento
+          );
+
+          if (idx >= 0) {
+            nuevosLotes[idx].cantidad += cant;
+          } else {
+            nuevosLotes.push({
               id: Date.now().toString(),
               variante: formProducto.variante || 'General',
               cantidad: cant,
               vencimiento: formProducto.vencimiento
-            }
-          ]
-        });
+            });
+          }
+
+          nuevosLotes.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+          const nuevoStockTotal = nuevosLotes.reduce((acc, l) => acc + l.cantidad, 0);
+
+          await updateDoc(doc(db, 'productos', prodExistente.id), { 
+            lotes: nuevosLotes,
+            stock: nuevoStockTotal
+          });
+        } else {
+          if (!formProducto.nombre || !formProducto.costo || !formProducto.precio) {
+            return alert("Completa nombre, costo y precio para el nuevo producto.");
+          }
+
+          await addDoc(collection(db, 'productos'), {
+            nombre: formProducto.nombre.trim(),
+            costo: Number(formProducto.costo),
+            precio: Number(formProducto.precio),
+            categoria: formProducto.categoria || 'Sin categoría',
+            stock: cant,
+            lotes: [
+              {
+                id: Date.now().toString(),
+                variante: formProducto.variante || 'General',
+                cantidad: cant,
+                vencimiento: formProducto.vencimiento
+              }
+            ]
+          });
+        }
       }
 
       setFormProducto({ productoId: '', nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: '' });
@@ -320,7 +406,8 @@ export default function App() {
   const handleEditarLote = async (prodId, loteId) => {
     const prod = productos.find(p => p.id === prodId);
     if (!prod) return;
-    const lote = (prod.lotes || []).find(l => l.id === loteId);
+    const lotesActuales = obtenerLotesNorm(prod);
+    const lote = lotesActuales.find(l => l.id === loteId);
     if (!lote) return;
 
     const nuevaCantStr = prompt(`Editar cantidad de "${prod.nombre} (${lote.variante})":`, lote.cantidad);
@@ -328,7 +415,7 @@ export default function App() {
 
     if (nuevaCantStr !== null && nuevaFecha !== null) {
       const nuevaCant = Number(nuevaCantStr) || 0;
-      let lotesModificados = (prod.lotes || []).map(l => {
+      let lotesModificados = lotesActuales.map(l => {
         if (l.id === loteId) {
           return { ...l, cantidad: nuevaCant, vencimiento: nuevaFecha };
         }
@@ -336,9 +423,14 @@ export default function App() {
       }).filter(l => l.cantidad > 0);
 
       lotesModificados.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+      const nuevoStockTotal = lotesModificados.reduce((acc, l) => acc + l.cantidad, 0);
 
       try {
-        await updateDoc(doc(db, 'productos', prodId), { lotes: lotesModificados });
+        await updateDoc(doc(db, 'productos', prodId), { 
+          lotes: lotesModificados,
+          stock: nuevoStockTotal,
+          vencimiento: lotesModificados[0]?.vencimiento || 'N/A'
+        });
       } catch (error) {
         alert("Error al actualizar lote: " + error.message);
       }
@@ -350,9 +442,15 @@ export default function App() {
     const prod = productos.find(p => p.id === prodId);
     if (!prod) return;
 
-    const lotesActualizados = (prod.lotes || []).filter(l => l.id !== loteId);
+    const lotesActuales = obtenerLotesNorm(prod);
+    const lotesActualizados = lotesActuales.filter(l => l.id !== loteId);
+    const nuevoStockTotal = lotesActualizados.reduce((acc, l) => acc + l.cantidad, 0);
+
     try {
-      await updateDoc(doc(db, 'productos', prodId), { lotes: lotesActualizados });
+      await updateDoc(doc(db, 'productos', prodId), { 
+        lotes: lotesActualizados,
+        stock: nuevoStockTotal 
+      });
     } catch (error) {
       alert("Error al eliminar lote: " + error.message);
     }
@@ -661,7 +759,7 @@ export default function App() {
                 >
                   <option value="">Seleccionar Producto...</option>
                   {productos.map((p) => {
-                    const st = getStockTotalProducto(p.lotes);
+                    const st = getStockTotalProducto(p);
                     return (
                       <option key={p.id} value={p.id} disabled={st <= 0}>
                         {p.precio === 0 ? '🎁 [REGALO] ' : ''}
@@ -681,7 +779,7 @@ export default function App() {
                     className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                   >
                     <option value="TODAS">🤖 Auto (Prioriza la más próxima a vencer)</option>
-                    {productos.find(p => p.id === formVenta.productoId)?.lotes?.map(l => (
+                    {obtenerLotesNorm(productos.find(p => p.id === formVenta.productoId) || {}).map(l => (
                       <option key={l.id} value={l.variante}>
                         {l.variante} (Cant: {l.cantidad} - Vence: {l.vencimiento})
                       </option>
@@ -842,8 +940,8 @@ export default function App() {
               <h2 className="text-base font-bold mb-3 text-slate-800">Estado Rápido de Stock</h2>
               <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
                 {productos.map((p) => {
-                  const stockTotal = getStockTotalProducto(p.lotes);
-                  const proxVenc = getProximoVencimientoProducto(p.lotes);
+                  const stockTotal = getStockTotalProducto(p);
+                  const proxVenc = getProximoVencimientoProducto(p);
                   return (
                     <div 
                       key={p.id} 
@@ -1088,34 +1186,49 @@ export default function App() {
       {pestana === 'inventario' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="no-print bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
-            <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
-              <PlusCircle size={20} className="text-indigo-600" /> Registrar Mercancía / Lote
-            </h2>
-            <form onSubmit={handleGuardarProducto} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Seleccionar Producto</label>
-                <select 
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={formProducto.productoId}
-                  onChange={(e) => setFormProducto({ ...formProducto, productoId: e.target.value })}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                {editandoProductoId ? <Edit2 size={20} className="text-amber-600" /> : <PlusCircle size={20} className="text-indigo-600" />}
+                {editandoProductoId ? 'Editar Datos del Producto' : 'Registrar Mercancía / Lote'}
+              </h2>
+              {editandoProductoId && (
+                <button 
+                  onClick={cancelarEdicion}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 bg-slate-100 px-2 py-1 rounded-md"
                 >
-                  <option value="">-- Crear Nuevo Producto Base --</option>
-                  {productos.map(p => (
-                    <option key={p.id} value={p.id}>Añadir Lote a: {p.nombre}</option>
-                  ))}
-                </select>
-              </div>
+                  <X size={14} /> Cancelar
+                </button>
+              )}
+            </div>
 
-              {!formProducto.productoId && (
+            <form onSubmit={handleGuardarProducto} className="space-y-3">
+              {!editandoProductoId && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Seleccionar Producto Existente</label>
+                  <select 
+                    className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                    value={formProducto.productoId}
+                    onChange={(e) => setFormProducto({ ...formProducto, productoId: e.target.value })}
+                  >
+                    <option value="">-- Crear Nuevo Producto Base --</option>
+                    {productos.map(p => (
+                      <option key={p.id} value={p.id}>Añadir Lote a: {p.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {(!formProducto.productoId || editandoProductoId) && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Producto Base</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Producto</label>
                     <input 
                       type="text" 
                       placeholder="Ej. Mr Tea"
                       value={formProducto.nombre}
                       onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
                       className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      required
                     />
                   </div>
 
@@ -1143,6 +1256,7 @@ export default function App() {
                         value={formProducto.costo}
                         onChange={(e) => setFormProducto({ ...formProducto, costo: e.target.value })}
                         className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        required
                       />
                     </div>
                     <div>
@@ -1154,6 +1268,7 @@ export default function App() {
                         value={formProducto.precio}
                         onChange={(e) => setFormProducto({ ...formProducto, precio: e.target.value })}
                         className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        required
                       />
                     </div>
                   </div>
@@ -1161,12 +1276,13 @@ export default function App() {
               )}
 
               <div className="border-t border-slate-200 pt-3">
-                <p className="text-xs font-bold text-indigo-600 uppercase mb-2">Detalles del Lote / Sabor</p>
+                <p className="text-xs font-bold text-indigo-600 uppercase mb-2">
+                  {editandoProductoId ? 'Añadir o Modificar Lote (Opcional)' : 'Detalles del Lote / Sabor'}
+                </p>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Sabor / Variante</label>
                   <input 
                     type="text" 
-                    required
                     placeholder="Ej. Limonada, Durazno, Original..."
                     value={formProducto.variante}
                     onChange={(e) => setFormProducto({ ...formProducto, variante: e.target.value })}
@@ -1179,7 +1295,6 @@ export default function App() {
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
                     <input 
                       type="number" 
-                      required
                       min="1"
                       placeholder="10"
                       value={formProducto.cantidad}
@@ -1191,7 +1306,6 @@ export default function App() {
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha Vencimiento</label>
                     <input 
                       type="date" 
-                      required
                       value={formProducto.vencimiento}
                       onChange={(e) => setFormProducto({ ...formProducto, vencimiento: e.target.value })}
                       className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -1202,9 +1316,11 @@ export default function App() {
 
               <button 
                 type="submit"
-                className="w-full bg-indigo-600 text-white font-semibold p-2.5 rounded-lg hover:bg-indigo-700 transition text-sm mt-2"
+                className={`w-full font-semibold p-2.5 rounded-lg transition text-sm mt-2 text-white ${
+                  editandoProductoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
+                }`}
               >
-                {formProducto.productoId ? 'Añadir Lote al Producto' : 'Guardar Nuevo Producto'}
+                {editandoProductoId ? 'Guardar Cambios del Producto' : formProducto.productoId ? 'Añadir Lote al Producto' : 'Guardar Nuevo Producto'}
               </button>
             </form>
           </div>
@@ -1234,8 +1350,9 @@ export default function App() {
                     </tr>
                   ) : (
                     productos.map((p) => {
-                      const stockTotal = getStockTotalProducto(p.lotes);
-                      const proxVenc = getProximoVencimientoProducto(p.lotes);
+                      const lotesNormalizados = obtenerLotesNorm(p);
+                      const stockTotal = getStockTotalProducto(p);
+                      const proxVenc = getProximoVencimientoProducto(p);
                       const estaExpandido = productoExpandidoId === p.id;
 
                       return (
@@ -1264,13 +1381,22 @@ export default function App() {
                             </td>
                             <td className="p-3 text-slate-600 text-xs font-medium">{proxVenc}</td>
                             <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                              <button 
-                                onClick={() => eliminarProductoCompleto(p.id)}
-                                className="text-red-500 hover:text-red-700 p-1 rounded"
-                                title="Eliminar producto completo"
-                              >
-                                <Trash2 size={16} />
-                              </button>
+                              <div className="flex justify-center items-center gap-1">
+                                <button 
+                                  onClick={() => iniciarEdicionProductoBase(p)}
+                                  className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
+                                  title="Editar nombre, costo y precio de este producto"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => eliminarProductoCompleto(p.id)}
+                                  className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
+                                  title="Eliminar producto completo"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
 
@@ -1280,10 +1406,10 @@ export default function App() {
                               <td colSpan="8" className="p-4">
                                 <div className="text-xs font-bold text-slate-500 uppercase mb-2">Sabores / Lotes Registrados:</div>
                                 <div className="space-y-1.5">
-                                  {(!p.lotes || p.lotes.length === 0) ? (
-                                    <p className="text-xs text-slate-400 italic">No hay lotes activos para este producto.</p>
+                                  {lotesNormalizados.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic">No hay lotes activos para este producto. Agrega uno en el formulario de la izquierda.</p>
                                   ) : (
-                                    p.lotes.map((lote) => (
+                                    lotesNormalizados.map((lote) => (
                                       <div key={lote.id} className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200 text-xs shadow-sm">
                                         <div className="flex items-center gap-4 flex-wrap">
                                           <span className="font-bold text-slate-800">📦 {lote.variante || 'General'}</span>
@@ -1296,7 +1422,7 @@ export default function App() {
                                           <button 
                                             onClick={() => handleEditarLote(p.id, lote.id)}
                                             className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
-                                            title="Editar este lote"
+                                            title="Editar cantidad o fecha de este lote"
                                           >
                                             <Edit2 size={15} />
                                           </button>
@@ -1379,7 +1505,7 @@ export default function App() {
           <h2 className="text-xl font-bold mb-6 text-slate-900 text-center">Menú de Productos</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {productos.map((p) => {
-              const stockTotal = getStockTotalProducto(p.lotes);
+              const stockTotal = getStockTotalProducto(p);
               return (
                 <div key={p.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex justify-between items-center">
                   <div>
