@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, writeBatch, getDocs, query, where
+  collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, writeBatch 
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegram';
@@ -25,7 +25,6 @@ export default function App() {
 
   // Estados desplegables y edición
   const [productoExpandidoId, setProductoExpandidoId] = useState(null);
-  const [editandoProductoId, setEditandoProductoId] = useState(null);
   const [nuevoEfectivoBaseInput, setNuevoEfectivoBaseInput] = useState('');
 
   // Referencias para listener de Telegram
@@ -99,11 +98,12 @@ export default function App() {
 
   // Formularios
   const [formVenta, setFormVenta] = useState({
-    cliente: '', productoId: '', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: ''
+    cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: ''
   });
 
   const [formProducto, setFormProducto] = useState({
-    nombre: '', costo: '', precio: '', stock: '', vencimiento: '', categoria: '', descripcion: ''
+    productoId: '', // Vacío para nuevo producto, o ID para añadir lote
+    nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: ''
   });
 
   const [formGasto, setFormGasto] = useState({
@@ -111,6 +111,18 @@ export default function App() {
   });
 
   const [nuevaCategoria, setNuevaCategoria] = useState('');
+
+  // Auxiliares para lotes y stock
+  const getStockTotalProducto = (lotes) => {
+    if (!lotes || !Array.isArray(lotes)) return 0;
+    return lotes.reduce((acc, l) => acc + Number(l.cantidad || 0), 0);
+  };
+
+  const getProximoVencimientoProducto = (lotes) => {
+    if (!lotes || !Array.isArray(lotes) || lotes.length === 0) return 'N/A';
+    const fechas = lotes.map(l => l.vencimiento).filter(Boolean).sort();
+    return fechas[0] || 'N/A';
+  };
 
   // Reportes Telegram
   const generarYEnviarReporteCierre = async (listaVentas) => {
@@ -141,22 +153,27 @@ export default function App() {
 
   const generarYEnviarAlertaStock = async (listaProductos) => {
     const prods = listaProductos || productos;
-    const agotados = prods.filter(p => p.stock <= 0);
-    const porAgotarse = prods.filter(p => p.stock > 0 && p.stock <= 3);
+    const agotados = prods.filter(p => getStockTotalProducto(p.lotes) <= 0);
+    const porAgotarse = prods.filter(p => {
+      const st = getStockTotalProducto(p.lotes);
+      return st > 0 && st <= 3;
+    });
 
     if (agotados.length === 0 && porAgotarse.length === 0) {
-      return await enviarMensajeTelegram("✅ <b>Estado del Inventario:</b> Todo el inventario está en niveles óptimos. No hay productos por reponer.");
+      return await enviarMensajeTelegram("✅ <b>Estado del Inventario:</b> Todo el inventario está en niveles óptimos.");
     }
 
     let textoAlerta = `🚨 <b>REPORTE DE PRODUCTOS A REPONER</b> 🚨\n\n`;
     if (agotados.length > 0) {
       textoAlerta += `❌ <b>PRODUCTOS AGOTADOS (Stock 0):</b>\n`;
-      agotados.forEach(p => { textoAlerta += `• <b>${p.nombre}</b> (Vencimiento: ${p.vencimiento})\n`; });
+      agotados.forEach(p => { textoAlerta += `• <b>${p.nombre}</b>\n`; });
       textoAlerta += `\n`;
     }
     if (porAgotarse.length > 0) {
       textoAlerta += `⚠️ <b>POCOS EN STOCK (3 o menos):</b>\n`;
-      porAgotarse.forEach(p => { textoAlerta += `• <b>${p.nombre}</b>: Quedan ${p.stock} unidades\n`; });
+      porAgotarse.forEach(p => { 
+        textoAlerta += `• <b>${p.nombre}</b>: Quedan ${getStockTotalProducto(p.lotes)} unidades\n`; 
+      });
       textoAlerta += `\n`;
     }
     textoAlerta += `🛒 <i>Por favor realizar pedido de compras.</i>`;
@@ -164,18 +181,45 @@ export default function App() {
     return await enviarMensajeTelegram(textoAlerta);
   };
 
-  // Handlers
+  // Guardar Venta con Descuento Inteligente (FEFO)
   const handleAgregarVenta = async (e) => {
     e.preventDefault();
     const prod = productos.find(p => p.id === formVenta.productoId);
     if (!prod) return alert("Selecciona un producto válido.");
 
-    const cantidad = Number(formVenta.cantidad);
-    if (prod.stock <= 0) return alert(`❌ No se puede realizar la venta: El producto "${prod.nombre}" está agotado.`);
-    if (cantidad > prod.stock) return alert(`❌ Stock insuficiente: Solo quedan ${prod.stock} unidades disponibles.`);
+    let cantidadARestar = Number(formVenta.cantidad);
+    const stockDisponible = getStockTotalProducto(prod.lotes);
 
-    const total = prod.precio * cantidad;
-    const costoTotal = prod.costo * cantidad;
+    if (stockDisponible <= 0) return alert(`❌ No se puede realizar la venta: "${prod.nombre}" está agotado.`);
+    if (cantidadARestar > stockDisponible) return alert(`❌ Stock insuficiente: Quedan ${stockDisponible} unidades.`);
+
+    let lotesActualizados = JSON.parse(JSON.stringify(prod.lotes || []));
+    lotesActualizados.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+
+    for (let lote of lotesActualizados) {
+      if (cantidadARestar <= 0) break;
+      if (formVenta.variante !== 'TODAS' && lote.variante.toLowerCase() !== formVenta.variante.toLowerCase()) {
+        continue;
+      }
+
+      if (lote.cantidad >= cantidadARestar) {
+        lote.cantidad -= cantidadARestar;
+        cantidadARestar = 0;
+      } else {
+        cantidadARestar -= lote.cantidad;
+        lote.cantidad = 0;
+      }
+    }
+
+    if (cantidadARestar > 0 && formVenta.variante !== 'TODAS') {
+      return alert(`❌ No hay suficiente stock de la variante "${formVenta.variante}".`);
+    }
+
+    lotesActualizados = lotesActualizados.filter(l => l.cantidad > 0);
+
+    const cantidadComprada = Number(formVenta.cantidad);
+    const total = prod.precio * cantidadComprada;
+    const costoTotal = prod.costo * cantidadComprada;
     const ganancia = total - costoTotal;
 
     const medioPagoFinal = formVenta.medioPago === 'Otro' 
@@ -187,7 +231,8 @@ export default function App() {
         fecha: new Date().toISOString().split('T')[0],
         cliente: formVenta.cliente || 'Cliente General',
         producto: prod.nombre,
-        cantidad,
+        variante: formVenta.variante === 'TODAS' ? 'Auto (FEFO)' : formVenta.variante,
+        cantidad: cantidadComprada,
         total,
         costoTotal,
         ganancia,
@@ -196,68 +241,121 @@ export default function App() {
         creadoEn: Date.now()
       });
 
-      const nuevoStock = prod.stock - cantidad;
-      await updateDoc(doc(db, 'productos', prod.id), { stock: Math.max(0, nuevoStock) });
+      await updateDoc(doc(db, 'productos', prod.id), { lotes: lotesActualizados });
 
-      if (nuevoStock <= 3) {
-        const estadoTexto = nuevoStock === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${nuevoStock} UNIDADES</b>`;
+      const nuevoStockTotal = getStockTotalProducto(lotesActualizados);
+      if (nuevoStockTotal <= 3) {
+        const estadoTexto = nuevoStockTotal === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${nuevoStockTotal} UNIDADES</b>`;
         enviarMensajeTelegram(
           `🚨 <b>ALERTA DE REPOSICIÓN DE INVENTARIO</b> 🚨\n\n` +
           `📦 Producto: <b>${prod.nombre}</b>\n` +
           `📊 Estado: ${estadoTexto}\n` +
-          `🔔 <i>Por favor coordinar compra / reposición con proveedores.</i>`
+          `🔔 <i>Por favor coordinar compra con proveedores.</i>`
         );
       }
 
-      setFormVenta({ cliente: '', productoId: '', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: '' });
+      setFormVenta({ cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: '' });
     } catch (error) {
       alert("Error al registrar la venta: " + error.message);
     }
   };
 
+  // Guardar Producto o Nuevo Lote
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
-    try {
-      const datosProd = {
-        nombre: formProducto.nombre,
-        costo: Number(formProducto.costo),
-        precio: Number(formProducto.precio),
-        stock: Number(formProducto.stock),
-        vencimiento: formProducto.vencimiento,
-        categoria: formProducto.categoria || 'Sin categoría',
-        descripcion: formProducto.descripcion || 'Sin descripción'
-      };
+    if (!formProducto.cantidad || !formProducto.vencimiento) return alert("Completa la cantidad y vencimiento.");
 
-      if (editandoProductoId) {
-        await updateDoc(doc(db, 'productos', editandoProductoId), datosProd);
-        setEditandoProductoId(null);
+    const cant = Number(formProducto.cantidad);
+    const prodExistente = productos.find(p => p.id === formProducto.productoId);
+
+    try {
+      if (prodExistente) {
+        let nuevosLotes = JSON.parse(JSON.stringify(prodExistente.lotes || []));
+        const idx = nuevosLotes.findIndex(
+          l => l.variante.toLowerCase() === formProducto.variante.toLowerCase() && l.vencimiento === formProducto.vencimiento
+        );
+
+        if (idx >= 0) {
+          nuevosLotes[idx].cantidad += cant;
+        } else {
+          nuevosLotes.push({
+            id: Date.now().toString(),
+            variante: formProducto.variante || 'General',
+            cantidad: cant,
+            vencimiento: formProducto.vencimiento
+          });
+        }
+
+        nuevosLotes.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+        await updateDoc(doc(db, 'productos', prodExistente.id), { lotes: nuevosLotes });
       } else {
-        await addDoc(collection(db, 'productos'), datosProd);
+        if (!formProducto.nombre || !formProducto.costo || !formProducto.precio) {
+          return alert("Completa nombre, costo y precio para el nuevo producto.");
+        }
+
+        await addDoc(collection(db, 'productos'), {
+          nombre: formProducto.nombre.trim(),
+          costo: Number(formProducto.costo),
+          precio: Number(formProducto.precio),
+          categoria: formProducto.categoria || 'Sin categoría',
+          descripcion: formProducto.descripcion || 'Sin descripción',
+          lotes: [
+            {
+              id: Date.now().toString(),
+              variante: formProducto.variante || 'General',
+              cantidad: cant,
+              vencimiento: formProducto.vencimiento
+            }
+          ]
+        });
       }
 
-      setFormProducto({ nombre: '', costo: '', precio: '', stock: '', vencimiento: '', categoria: '', descripcion: '' });
+      setFormProducto({ productoId: '', nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: '' });
     } catch (error) {
-      alert("Error al guardar producto: " + error.message);
+      alert("Error al guardar producto/lote: " + error.message);
     }
   };
 
-  const iniciarEdicion = (prod) => {
-    setEditandoProductoId(prod.id);
-    setFormProducto({
-      nombre: prod.nombre,
-      costo: prod.costo,
-      precio: prod.precio,
-      stock: prod.stock,
-      vencimiento: prod.vencimiento,
-      categoria: prod.categoria || '',
-      descripcion: prod.descripcion || ''
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Editar o Eliminar Lote
+  const handleEditarLote = async (prodId, loteId) => {
+    const prod = productos.find(p => p.id === prodId);
+    if (!prod) return;
+    const lote = (prod.lotes || []).find(l => l.id === loteId);
+    if (!lote) return;
+
+    const nuevaCantStr = prompt(`Editar cantidad de "${prod.nombre} (${lote.variante})":`, lote.cantidad);
+    const nuevaFecha = prompt(`Editar fecha de vencimiento (AAAA-MM-DD):`, lote.vencimiento);
+
+    if (nuevaCantStr !== null && nuevaFecha !== null) {
+      const nuevaCant = Number(nuevaCantStr) || 0;
+      let lotesModificados = (prod.lotes || []).map(l => {
+        if (l.id === loteId) {
+          return { ...l, cantidad: nuevaCant, vencimiento: nuevaFecha };
+        }
+        return l;
+      }).filter(l => l.cantidad > 0);
+
+      lotesModificados.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+
+      try {
+        await updateDoc(doc(db, 'productos', prodId), { lotes: lotesModificados });
+      } catch (error) {
+        alert("Error al actualizar lote: " + error.message);
+      }
+    }
   };
 
-  const cancelarEdicion = () => {
-    setEditandoProductoId(null);
-    setFormProducto({ nombre: '', costo: '', precio: '', stock: '', vencimiento: '', categoria: '', descripcion: '' });
+  const handleEliminarLote = async (prodId, loteId) => {
+    if (!confirm("¿Eliminar este lote específico del inventario?")) return;
+    const prod = productos.find(p => p.id === prodId);
+    if (!prod) return;
+
+    const lotesActualizados = (prod.lotes || []).filter(l => l.id !== loteId);
+    try {
+      await updateDoc(doc(db, 'productos', prodId), { lotes: lotesActualizados });
+    } catch (error) {
+      alert("Error al eliminar lote: " + error.message);
+    }
   };
 
   const handleGuardarEfectivoBase = async (e) => {
@@ -313,7 +411,7 @@ export default function App() {
       return alert("No hay ventas pagadas para eliminar.");
     }
 
-    if (confirm(`¿Estás seguro de eliminar las ${ventasPagadasList.length} ventas ya PAGADAS? Esta acción conservará solo las pendientes por cobrar (fiados).`)) {
+    if (confirm(`¿Estás seguro de eliminar las ${ventasPagadasList.length} ventas ya PAGADAS? Se conservarán solo las pendientes por cobrar.`)) {
       try {
         const batch = writeBatch(db);
         ventasPagadasList.forEach(v => {
@@ -342,8 +440,10 @@ export default function App() {
     if (confirm("¿Eliminar esta categoría?")) await deleteDoc(doc(db, 'categorias', id));
   };
 
-  const eliminarProducto = async (id) => {
-    if (confirm("¿Eliminar este producto del inventario?")) await deleteDoc(doc(db, 'productos', id));
+  const eliminarProductoCompleto = async (id) => {
+    if (confirm("¿Eliminar este producto completo con todos sus lotes?")) {
+      await deleteDoc(doc(db, 'productos', id));
+    }
   };
 
   const togglePago = async (id, estadoActual) => {
@@ -373,10 +473,7 @@ export default function App() {
     .filter(g => g.tipo === 'Proveedor' || g.tipo === 'Compra Productos')
     .reduce((acc, g) => acc + g.monto, 0);
 
-  // Efectivo Total Vivo = Efectivo base inicial + Ventas cobradas en efectivo - Gastos totales
   const efectivoTotalEnCaja = cajaInicial + totalVentasEfectivoCobrado - totalGastosRegistrados;
-
-  // Punto cero de reposición = Retorno de inversión acumulado vs compras/gastos en proveedores
   const estadoPuntoCeroReposicion = totalReposicionDia - gastosEnReposiciones;
 
   const handleEnviarReporteTelegram = async () => {
@@ -391,7 +488,7 @@ export default function App() {
     else alert("Ocurrió un error al enviar la alerta a Telegram.");
   };
 
-  // Datos para gráficos
+  // Gráficos
   const datosVentasSemanales = (() => {
     const semanas = [
       { mes: 'Sem 1', ventas: 0 },
@@ -422,8 +519,6 @@ export default function App() {
       unidades: conteo[nombre]
     })).sort((a, b) => b.unidades - a.unidades);
   })();
-
-  const gananciaUnitariaPrev = (Number(formProducto.precio) || 0) - (Number(formProducto.costo) || 0);
 
   if (cargando) {
     return (
@@ -500,7 +595,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Botones de acción Telegram / PDF */}
+        {/* Botones Telegram */}
         <div className="flex items-center gap-2 no-print flex-wrap justify-center lg:justify-end">
           <button 
             onClick={handleEnviarAlertaStockTelegram}
@@ -521,7 +616,6 @@ export default function App() {
       {/* ==================== PESTAÑA VENTAS ==================== */}
       {pestana === 'ventas' && (
         <>
-          {/* Tarjetas resumen */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 print:gap-2 print:mb-4">
             <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm print-card">
               <p className="text-xs text-slate-500 font-medium">Ventas Pagadas Hoy</p>
@@ -541,7 +635,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Formulario Registrar Venta */}
           <div className="no-print bg-white p-5 rounded-xl border border-slate-200 shadow-sm mb-6">
             <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
               <PlusCircle size={20} className="text-indigo-600" /> Registrar Nueva Venta / Regalo
@@ -567,14 +660,35 @@ export default function App() {
                   className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                 >
                   <option value="">Seleccionar Producto...</option>
-                  {productos.map((p) => (
-                    <option key={p.id} value={p.id} disabled={p.stock <= 0}>
-                      {p.precio === 0 ? '🎁 [REGALO] ' : ''}
-                      {p.nombre} — ${p.precio} (Stock: {p.stock})
-                    </option>
-                  ))}
+                  {productos.map((p) => {
+                    const st = getStockTotalProducto(p.lotes);
+                    return (
+                      <option key={p.id} value={p.id} disabled={st <= 0}>
+                        {p.precio === 0 ? '🎁 [REGALO] ' : ''}
+                        {p.nombre} — ${p.precio} (Stock: {st})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
+
+              {formVenta.productoId && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Sabor / Variante</label>
+                  <select 
+                    value={formVenta.variante}
+                    onChange={(e) => setFormVenta({ ...formVenta, variante: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  >
+                    <option value="TODAS">🤖 Auto (Prioriza la más próxima a vencer)</option>
+                    {productos.find(p => p.id === formVenta.productoId)?.lotes?.map(l => (
+                      <option key={l.id} value={l.variante}>
+                        {l.variante} (Cant: {l.cantidad} - Vence: {l.vencimiento})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
@@ -637,7 +751,6 @@ export default function App() {
             </form>
           </div>
 
-          {/* Tabla de ventas y lateral de inventario rápido */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 print:mb-4">
             <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm print-card">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
@@ -652,7 +765,6 @@ export default function App() {
                   <button 
                     onClick={handleBorrarVentasPagadas}
                     className="flex items-center gap-1.5 bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition text-xs font-semibold shadow"
-                    title="Elimina solo las ventas que ya están pagadas y conserva las pendientes"
                   >
                     <Trash2 size={14} /> Limpiar Ventas Pagadas
                   </button>
@@ -665,6 +777,7 @@ export default function App() {
                     <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
                       <th className="p-3">Cliente</th>
                       <th className="p-3">Producto</th>
+                      <th className="p-3">Sabor</th>
                       <th className="p-3">Medio Pago</th>
                       <th className="p-3">Total</th>
                       <th className="p-3">Ganancia</th>
@@ -675,7 +788,7 @@ export default function App() {
                   <tbody>
                     {ventas.length === 0 ? (
                       <tr>
-                        <td colSpan="7" className="text-center p-4 text-slate-400">No hay ventas registradas aún.</td>
+                        <td colSpan="8" className="text-center p-4 text-slate-400">No hay ventas registradas aún.</td>
                       </tr>
                     ) : (
                       ventas.map((v) => (
@@ -687,6 +800,7 @@ export default function App() {
                         >
                           <td className="p-3 font-medium">{v.cliente}</td>
                           <td className="p-3">{v.producto} (x{v.cantidad})</td>
+                          <td className="p-3 text-xs text-slate-500 font-medium">{v.variante || 'General'}</td>
                           <td className="p-3">
                             <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold border border-slate-200">
                               <CreditCard size={12} /> {v.medioPago}
@@ -724,35 +838,37 @@ export default function App() {
               </div>
             </div>
 
-            {/* Lateral Resumen Stock */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card lg:col-span-1 no-print">
               <h2 className="text-base font-bold mb-3 text-slate-800">Estado Rápido de Stock</h2>
               <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
-                {productos.map((p) => (
-                  <div 
-                    key={p.id} 
-                    className={`p-2.5 rounded-lg border flex justify-between items-center text-xs ${
-                      p.stock <= 0
-                        ? 'bg-red-50 border-red-300 text-red-900 font-bold'
-                        : p.stock <= 3 
-                        ? 'bg-amber-50 border-amber-300 text-amber-900 font-semibold' 
-                        : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <p className="text-slate-900 font-medium">{p.nombre}</p>
-                      <p className="opacity-80">Vence: {p.vencimiento || 'N/A'}</p>
+                {productos.map((p) => {
+                  const stockTotal = getStockTotalProducto(p.lotes);
+                  const proxVenc = getProximoVencimientoProducto(p.lotes);
+                  return (
+                    <div 
+                      key={p.id} 
+                      className={`p-2.5 rounded-lg border flex justify-between items-center text-xs ${
+                        stockTotal <= 0
+                          ? 'bg-red-50 border-red-300 text-red-900 font-bold'
+                          : stockTotal <= 3 
+                          ? 'bg-amber-50 border-amber-300 text-amber-900 font-semibold' 
+                          : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div>
+                        <p className="text-slate-900 font-medium">{p.nombre}</p>
+                        <p className="opacity-80">Próx. Vence: {proxVenc}</p>
+                      </div>
+                      <span className="font-bold text-sm">
+                        {stockTotal <= 0 ? '❌ 0' : `${stockTotal} un.`}
+                      </span>
                     </div>
-                    <span className="font-bold text-sm">
-                      {p.stock <= 0 ? '❌ 0' : `${p.stock} un.`}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
 
-          {/* Gráficos */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print-grid">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card">
               <h3 className="text-sm font-bold mb-3 text-slate-800">Ventas Acumuladas ($)</h3>
@@ -785,10 +901,9 @@ export default function App() {
         </>
       )}
 
-      {/* ==================== NUEVA PESTAÑA ESTADO DE CUENTA ==================== */}
+      {/* ==================== PESTAÑA ESTADO DE CUENTA ==================== */}
       {pestana === 'estado_cuenta' && (
         <div className="space-y-6">
-          {/* Tarjetas Dinámicas de Efectivo y Punto Cero */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-gradient-to-br from-indigo-900 to-indigo-700 text-white p-5 rounded-xl shadow-sm">
               <div className="flex justify-between items-start mb-2">
@@ -814,7 +929,7 @@ export default function App() {
                   ? `Falta por recuperar $${Math.abs(estadoPuntoCeroReposicion).toLocaleString()} para quedar en $0.`
                   : estadoPuntoCeroReposicion === 0
                   ? '¡Punto de equilibrio alcanzado! ($0 en saldo de reposición).'
-                  : `¡Dinero duplicado / Ganancia neta sobre la reposición: +$${estadoPuntoCeroReposicion.toLocaleString()}!`}
+                  : `¡Ganancia neta sobre reposición: +$${estadoPuntoCeroReposicion.toLocaleString()}!`}
               </p>
             </div>
 
@@ -830,13 +945,12 @@ export default function App() {
             </div>
           </div>
 
-          {/* Formulario Efectivo No Registrado (Saldo Inicial) */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
             <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
               <DollarSign size={18} className="text-emerald-600" /> Ajustar Efectivo Base No Registrado
             </h2>
             <p className="text-xs text-slate-500 mb-4">
-              Ingresa la cantidad de dinero acumulado físicamente que no se había registrado previamente. La app lo sumará como base a las ventas futuras.
+              Ingresa la cantidad de dinero acumulado físicamente que no se había registrado previamente.
             </p>
             <form onSubmit={handleGuardarEfectivoBase} className="flex gap-3 max-w-md">
               <input 
@@ -857,7 +971,6 @@ export default function App() {
             </form>
           </div>
 
-          {/* Formulario y Tabla de Gastos */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
               <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -973,149 +1086,158 @@ export default function App() {
 
       {/* ==================== PESTAÑA INVENTARIO ==================== */}
       {pestana === 'inventario' && (
-        <>
-          {/* Formulario Crear / Editar Producto */}
-          <div className="no-print bg-white p-5 rounded-xl border border-slate-200 shadow-sm mb-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                {editandoProductoId ? <Edit2 size={20} className="text-amber-600" /> : <PlusCircle size={20} className="text-indigo-600" />}
-                {editandoProductoId ? 'Editar Producto Seleccionado' : 'Registrar Nuevo Producto / Lote'}
-              </h2>
-              {editandoProductoId && (
-                <button 
-                  onClick={cancelarEdicion}
-                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 bg-slate-100 px-2 py-1 rounded-md"
-                >
-                  <X size={14} /> Cancelar edición
-                </button>
-              )}
-            </div>
-
-            <form onSubmit={handleGuardarProducto} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="no-print bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
+            <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
+              <PlusCircle size={20} className="text-indigo-600" /> Registrar Mercancía / Lote
+            </h2>
+            <form onSubmit={handleGuardarProducto} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="Ej. Jugo de Mora"
-                  value={formProducto.nombre}
-                  onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
-                <select
-                  value={formProducto.categoria}
-                  onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Seleccionar Producto</label>
+                <select 
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={formProducto.productoId}
+                  onChange={(e) => setFormProducto({ ...formProducto, productoId: e.target.value })}
                 >
-                  <option value="">Seleccionar Categoría...</option>
-                  {categorias.map(cat => (
-                    <option key={cat.id} value={cat.nombre}>{cat.nombre}</option>
+                  <option value="">-- Crear Nuevo Producto Base --</option>
+                  {productos.map(p => (
+                    <option key={p.id} value={p.id}>Añadir Lote a: {p.nombre}</option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Proveedor ($)</label>
-                <input 
-                  type="number" 
-                  required
-                  min="0"
-                  placeholder="1000"
-                  value={formProducto.costo}
-                  onChange={(e) => setFormProducto({ ...formProducto, costo: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
+              {!formProducto.productoId && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Producto Base</label>
+                    <input 
+                      type="text" 
+                      placeholder="Ej. Mr Tea"
+                      value={formProducto.nombre}
+                      onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
+                      className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
+                    <select
+                      value={formProducto.categoria}
+                      onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
+                      className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                    >
+                      <option value="">Seleccionar Categoría...</option>
+                      {categorias.map(cat => (
+                        <option key={cat.id} value={cat.nombre}>{cat.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Proveedor ($)</label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        placeholder="3000"
+                        value={formProducto.costo}
+                        onChange={(e) => setFormProducto({ ...formProducto, costo: e.target.value })}
+                        className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Precio Venta ($)</label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        placeholder="4200"
+                        value={formProducto.precio}
+                        onChange={(e) => setFormProducto({ ...formProducto, precio: e.target.value })}
+                        className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="border-t border-slate-200 pt-3">
+                <p className="text-xs font-bold text-indigo-600 uppercase mb-2">Detalles del Lote / Sabor</p>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Sabor / Variante</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="Ej. Limonada, Durazno, Original..."
+                    value={formProducto.variante}
+                    onChange={(e) => setFormProducto({ ...formProducto, variante: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
+                    <input 
+                      type="number" 
+                      required
+                      min="1"
+                      placeholder="10"
+                      value={formProducto.cantidad}
+                      onChange={(e) => setFormProducto({ ...formProducto, cantidad: e.target.value })}
+                      className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha Vencimiento</label>
+                    <input 
+                      type="date" 
+                      required
+                      value={formProducto.vencimiento}
+                      onChange={(e) => setFormProducto({ ...formProducto, vencimiento: e.target.value })}
+                      className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Precio Venta ($)</label>
-                <input 
-                  type="number" 
-                  required
-                  min="0"
-                  placeholder="2500"
-                  value={formProducto.precio}
-                  onChange={(e) => setFormProducto({ ...formProducto, precio: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Stock</label>
-                <input 
-                  type="number" 
-                  required
-                  min="0"
-                  placeholder="20"
-                  value={formProducto.stock}
-                  onChange={(e) => setFormProducto({ ...formProducto, stock: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha Vencimiento</label>
-                <input 
-                  type="date" 
-                  required
-                  value={formProducto.vencimiento}
-                  onChange={(e) => setFormProducto({ ...formProducto, vencimiento: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-
-              <div className="md:col-span-3 lg:col-span-6 flex gap-2">
-                <button 
-                  type="submit"
-                  className={`flex-1 font-semibold p-2.5 rounded-lg transition text-white flex justify-center items-center gap-2 ${
-                    editandoProductoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
-                  }`}
-                >
-                  {editandoProductoId ? <Save size={18} /> : <PlusCircle size={18} />}
-                  {editandoProductoId ? 'Guardar Cambios del Producto' : 'Guardar Producto'}
-                </button>
-              </div>
+              <button 
+                type="submit"
+                className="w-full bg-indigo-600 text-white font-semibold p-2.5 rounded-lg hover:bg-indigo-700 transition text-sm mt-2"
+              >
+                {formProducto.productoId ? 'Añadir Lote al Producto' : 'Guardar Nuevo Producto'}
+              </button>
             </form>
-
-            {formProducto.costo && formProducto.precio && (
-              <div className="mt-3 p-2 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-800 flex items-center gap-2">
-                <DollarSign size={14} />
-                <span>Ganancia estimada por unidad: <strong>${gananciaUnitariaPrev.toLocaleString()}</strong></span>
-              </div>
-            )}
           </div>
 
-          {/* Tabla Desplegable de Inventario */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-            <h2 className="text-lg font-bold mb-4 text-slate-800">Inventario de Productos y Lotes</h2>
-            <p className="text-xs text-slate-500 mb-3">Haz clic sobre cualquier fila para desplegar y ver los detalles individuales del producto.</p>
+          <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <h2 className="text-lg font-bold mb-4 text-slate-800">Inventario de Productos y Lotes Desplegables</h2>
+            <p className="text-xs text-slate-500 mb-3">Haz clic en la flecha para desplegar las fechas de vencimiento y sabores de cada producto.</p>
             
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse min-w-[600px]">
+              <table className="w-full text-left text-sm border-collapse min-w-[550px]">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
                     <th className="p-3 w-8"></th>
-                    <th className="p-3">Nombre</th>
+                    <th className="p-3">Producto</th>
                     <th className="p-3">Categoría</th>
                     <th className="p-3">Costo</th>
                     <th className="p-3">Precio</th>
-                    <th className="p-3">Stock</th>
-                    <th className="p-3">Vencimiento</th>
-                    <th className="p-3 text-center">Acciones</th>
+                    <th className="p-3">Stock Total</th>
+                    <th className="p-3">Próx. Vencimiento</th>
+                    <th className="p-3 text-center">Acción</th>
                   </tr>
                 </thead>
                 <tbody>
                   {productos.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="text-center p-4 text-slate-400">No hay productos en el inventario.</td>
+                      <td colSpan="8" className="text-center p-4 text-slate-400">No hay productos en inventario.</td>
                     </tr>
                   ) : (
                     productos.map((p) => {
+                      const stockTotal = getStockTotalProducto(p.lotes);
+                      const proxVenc = getProximoVencimientoProducto(p.lotes);
                       const estaExpandido = productoExpandidoId === p.id;
+
                       return (
                         <React.Fragment key={p.id}>
                           <tr 
@@ -1135,53 +1257,60 @@ export default function App() {
                             <td className="p-3 font-bold text-slate-900">${p.precio}</td>
                             <td className="p-3">
                               <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                p.stock <= 0 ? 'bg-red-100 text-red-800' : p.stock <= 3 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                                stockTotal <= 0 ? 'bg-red-100 text-red-800' : stockTotal <= 3 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                               }`}>
-                                {p.stock <= 0 ? 'Agotado (0)' : `${p.stock} un.`}
+                                {stockTotal <= 0 ? 'Agotado (0)' : `${stockTotal} un.`}
                               </span>
                             </td>
-                            <td className="p-3 text-slate-600">{p.vencimiento}</td>
+                            <td className="p-3 text-slate-600 text-xs font-medium">{proxVenc}</td>
                             <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex justify-center items-center gap-1">
-                                <button 
-                                  onClick={() => iniciarEdicion(p)}
-                                  className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
-                                  title="Editar este producto"
-                                >
-                                  <Edit2 size={16} />
-                                </button>
-                                <button 
-                                  onClick={() => eliminarProducto(p.id)}
-                                  className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
-                                  title="Eliminar este producto"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
+                              <button 
+                                onClick={() => eliminarProductoCompleto(p.id)}
+                                className="text-red-500 hover:text-red-700 p-1 rounded"
+                                title="Eliminar producto completo"
+                              >
+                                <Trash2 size={16} />
+                              </button>
                             </td>
                           </tr>
 
-                          {/* Fila desplegable con detalle individual */}
+                          {/* Sub-tabla desplegable de variantes y lotes */}
                           {estaExpandido && (
                             <tr className="bg-slate-50/90 border-b border-indigo-100">
                               <td colSpan="8" className="p-4">
-                                <div className="bg-white p-4 rounded-lg border border-indigo-100 shadow-inner grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
-                                  <div>
-                                    <p className="text-slate-400 font-medium">Nombre Completo</p>
-                                    <p className="font-bold text-slate-800 text-sm">{p.nombre}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-slate-400 font-medium">Margen Ganancia Unitaria</p>
-                                    <p className="font-bold text-emerald-600 text-sm">${p.precio - p.costo}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-slate-400 font-medium">Valor Total Inventario</p>
-                                    <p className="font-bold text-indigo-600 text-sm">${p.precio * p.stock}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-slate-400 font-medium">Fecha de Vencimiento</p>
-                                    <p className="font-semibold text-slate-700">{p.vencimiento || 'No registrada'}</p>
-                                  </div>
+                                <div className="text-xs font-bold text-slate-500 uppercase mb-2">Sabores / Lotes Registrados:</div>
+                                <div className="space-y-1.5">
+                                  {(!p.lotes || p.lotes.length === 0) ? (
+                                    <p className="text-xs text-slate-400 italic">No hay lotes activos para este producto.</p>
+                                  ) : (
+                                    p.lotes.map((lote) => (
+                                      <div key={lote.id} className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200 text-xs shadow-sm">
+                                        <div className="flex items-center gap-4 flex-wrap">
+                                          <span className="font-bold text-slate-800">📦 {lote.variante || 'General'}</span>
+                                          <span className="text-slate-600">Stock: <strong>{lote.cantidad} un.</strong></span>
+                                          <span className="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-semibold">
+                                            Vence: {lote.vencimiento}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <button 
+                                            onClick={() => handleEditarLote(p.id, lote.id)}
+                                            className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
+                                            title="Editar este lote"
+                                          >
+                                            <Edit2 size={15} />
+                                          </button>
+                                          <button 
+                                            onClick={() => handleEliminarLote(p.id, lote.id)}
+                                            className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
+                                            title="Eliminar este lote"
+                                          >
+                                            <Trash2 size={15} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -1194,7 +1323,7 @@ export default function App() {
               </table>
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* ==================== PESTAÑA CATEGORÍAS ==================== */}
@@ -1249,20 +1378,23 @@ export default function App() {
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
           <h2 className="text-xl font-bold mb-6 text-slate-900 text-center">Menú de Productos</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {productos.map((p) => (
-              <div key={p.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex justify-between items-center">
-                <div>
-                  <h3 className="font-bold text-slate-900">{p.nombre}</h3>
-                  <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-medium border border-indigo-100">
-                    {p.categoria || 'General'}
-                  </span>
+            {productos.map((p) => {
+              const stockTotal = getStockTotalProducto(p.lotes);
+              return (
+                <div key={p.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex justify-between items-center">
+                  <div>
+                    <h3 className="font-bold text-slate-900">{p.nombre}</h3>
+                    <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-medium border border-indigo-100">
+                      {p.categoria || 'General'}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-indigo-600">${p.precio}</p>
+                    <p className="text-xs text-slate-500">{stockTotal > 0 ? `Disponible: ${stockTotal}` : 'Agotado'}</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-lg font-bold text-indigo-600">${p.precio}</p>
-                  <p className="text-xs text-slate-500">{p.stock > 0 ? `Disponible: ${p.stock}` : 'Agotado'}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
