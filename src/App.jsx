@@ -10,7 +10,7 @@ import {
 import { 
   CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp
 } from 'lucide-react';
 
 export default function App() {
@@ -35,12 +35,11 @@ export default function App() {
   useEffect(() => { productosRef.current = productos; }, [productos]);
   useEffect(() => { ventasRef.current = ventas; }, [ventas]);
 
-  // Normalizador de lotes para garantizar compatibilidad con datos viejos
+  // Normalizador de lotes para garantizar compatibilidad
   const obtenerLotesNorm = (p) => {
     if (Array.isArray(p.lotes) && p.lotes.length > 0) {
       return p.lotes;
     }
-    // Si no tiene arreglo 'lotes', migra temporalmente los campos antiguos 'stock' y 'vencimiento'
     const stockAntiguo = Number(p.stock) || 0;
     const vencAntiguo = p.vencimiento || 'Sin fecha';
     if (stockAntiguo > 0 || vencAntiguo !== 'Sin fecha') {
@@ -144,6 +143,11 @@ export default function App() {
 
   const [nuevaCategoria, setNuevaCategoria] = useState('');
 
+  // Cuentas de previsualización de ganancia en formulario
+  const costoNum = Number(formProducto.costo) || 0;
+  const precioNum = Number(formProducto.precio) || 0;
+  const gananciaUnitariaPrev = precioNum - costoNum;
+
   // Reportes Telegram
   const generarYEnviarReporteCierre = async (listaVentas) => {
     const ventasPagadas = (listaVentas || ventas).filter(v => v.pagado);
@@ -201,7 +205,7 @@ export default function App() {
     return await enviarMensajeTelegram(textoAlerta);
   };
 
-  // Guardar Venta con Descuento Inteligente (FEFO)
+  // Guardar Venta
   const handleAgregarVenta = async (e) => {
     e.preventDefault();
     const prod = productos.find(p => p.id === formVenta.productoId);
@@ -283,7 +287,6 @@ export default function App() {
     }
   };
 
-  // Iniciar edición de datos del producto base
   const iniciarEdicionProductoBase = (prod) => {
     setEditandoProductoId(prod.id);
     setFormProducto({
@@ -305,13 +308,11 @@ export default function App() {
     setFormProducto({ productoId: '', nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: '' });
   };
 
-  // Guardar / Actualizar Producto o Añadir Lote
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
 
     try {
       if (editandoProductoId) {
-        // Actualizar datos base del producto
         await updateDoc(doc(db, 'productos', editandoProductoId), {
           nombre: formProducto.nombre.trim(),
           costo: Number(formProducto.costo),
@@ -319,7 +320,6 @@ export default function App() {
           categoria: formProducto.categoria || 'Sin categoría'
         });
 
-        // Si además llenó cantidad y fecha, se agrega como lote
         if (formProducto.cantidad && formProducto.vencimiento) {
           const prodObj = productos.find(p => p.id === editandoProductoId);
           let nuevosLotes = JSON.parse(JSON.stringify(obtenerLotesNorm(prodObj || {})));
@@ -402,7 +402,6 @@ export default function App() {
     }
   };
 
-  // Editar o Eliminar Lote
   const handleEditarLote = async (prodId, loteId) => {
     const prod = productos.find(p => p.id === prodId);
     if (!prod) return;
@@ -1272,6 +1271,16 @@ export default function App() {
                       />
                     </div>
                   </div>
+
+                  {/* PREVISUALIZACIÓN DE GANANCIA EN VIVO */}
+                  {formProducto.costo && formProducto.precio && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between font-semibold">
+                      <span className="flex items-center gap-1">
+                        <TrendingUp size={14} className="text-emerald-600" /> Ganancia Unitaria:
+                      </span>
+                      <span className="text-sm font-bold text-emerald-700">${gananciaUnitariaPrev.toLocaleString()}</span>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -1327,7 +1336,7 @@ export default function App() {
 
           <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
             <h2 className="text-lg font-bold mb-4 text-slate-800">Inventario de Productos y Lotes Desplegables</h2>
-            <p className="text-xs text-slate-500 mb-3">Haz clic en la flecha para desplegar las fechas de vencimiento y sabores de cada producto.</p>
+            <p className="text-xs text-slate-500 mb-3">Haz clic en la flecha para desplegar las fechas de vencimiento, sabores y ganancias estimadas.</p>
             
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse min-w-[550px]">
@@ -1338,6 +1347,7 @@ export default function App() {
                     <th className="p-3">Categoría</th>
                     <th className="p-3">Costo</th>
                     <th className="p-3">Precio</th>
+                    <th className="p-3">Ganancia c/u</th>
                     <th className="p-3">Stock Total</th>
                     <th className="p-3">Próx. Vencimiento</th>
                     <th className="p-3 text-center">Acción</th>
@@ -1346,7 +1356,7 @@ export default function App() {
                 <tbody>
                   {productos.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="text-center p-4 text-slate-400">No hay productos en inventario.</td>
+                      <td colSpan="9" className="text-center p-4 text-slate-400">No hay productos en inventario.</td>
                     </tr>
                   ) : (
                     productos.map((p) => {
@@ -1354,6 +1364,7 @@ export default function App() {
                       const stockTotal = getStockTotalProducto(p);
                       const proxVenc = getProximoVencimientoProducto(p);
                       const estaExpandido = productoExpandidoId === p.id;
+                      const gananciaUnitaria = (Number(p.precio) || 0) - (Number(p.costo) || 0);
 
                       return (
                         <React.Fragment key={p.id}>
@@ -1372,6 +1383,7 @@ export default function App() {
                             </td>
                             <td className="p-3 text-slate-600">${p.costo}</td>
                             <td className="p-3 font-bold text-slate-900">${p.precio}</td>
+                            <td className="p-3 font-semibold text-emerald-600">${gananciaUnitaria.toLocaleString()}</td>
                             <td className="p-3">
                               <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                                 stockTotal <= 0 ? 'bg-red-100 text-red-800' : stockTotal <= 3 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
@@ -1400,42 +1412,48 @@ export default function App() {
                             </td>
                           </tr>
 
-                          {/* Sub-tabla desplegable de variantes y lotes */}
+                          {/* Sub-tabla desplegable con desglose de ganancia por lote */}
                           {estaExpandido && (
                             <tr className="bg-slate-50/90 border-b border-indigo-100">
-                              <td colSpan="8" className="p-4">
-                                <div className="text-xs font-bold text-slate-500 uppercase mb-2">Sabores / Lotes Registrados:</div>
+                              <td colSpan="9" className="p-4">
+                                <div className="text-xs font-bold text-slate-500 uppercase mb-2">Sabores / Lotes Registrados y Ganancias:</div>
                                 <div className="space-y-1.5">
                                   {lotesNormalizados.length === 0 ? (
                                     <p className="text-xs text-slate-400 italic">No hay lotes activos para este producto. Agrega uno en el formulario de la izquierda.</p>
                                   ) : (
-                                    lotesNormalizados.map((lote) => (
-                                      <div key={lote.id} className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200 text-xs shadow-sm">
-                                        <div className="flex items-center gap-4 flex-wrap">
-                                          <span className="font-bold text-slate-800">📦 {lote.variante || 'General'}</span>
-                                          <span className="text-slate-600">Stock: <strong>{lote.cantidad} un.</strong></span>
-                                          <span className="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-semibold">
-                                            Vence: {lote.vencimiento}
-                                          </span>
+                                    lotesNormalizados.map((lote) => {
+                                      const gananciaLoteTotal = gananciaUnitaria * lote.cantidad;
+                                      return (
+                                        <div key={lote.id} className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200 text-xs shadow-sm">
+                                          <div className="flex items-center gap-4 flex-wrap">
+                                            <span className="font-bold text-slate-800">📦 {lote.variante || 'General'}</span>
+                                            <span className="text-slate-600">Stock: <strong>{lote.cantidad} un.</strong></span>
+                                            <span className="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-semibold">
+                                              Vence: {lote.vencimiento}
+                                            </span>
+                                            <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-bold">
+                                              Ganancia total lote: +${gananciaLoteTotal.toLocaleString()}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-1">
+                                            <button 
+                                              onClick={() => handleEditarLote(p.id, lote.id)}
+                                              className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
+                                              title="Editar cantidad o fecha de este lote"
+                                            >
+                                              <Edit2 size={15} />
+                                            </button>
+                                            <button 
+                                              onClick={() => handleEliminarLote(p.id, lote.id)}
+                                              className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
+                                              title="Eliminar este lote"
+                                            >
+                                              <Trash2 size={15} />
+                                            </button>
+                                          </div>
                                         </div>
-                                        <div className="flex items-center gap-1">
-                                          <button 
-                                            onClick={() => handleEditarLote(p.id, lote.id)}
-                                            className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
-                                            title="Editar cantidad o fecha de este lote"
-                                          >
-                                            <Edit2 size={15} />
-                                          </button>
-                                          <button 
-                                            onClick={() => handleEliminarLote(p.id, lote.id)}
-                                            className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
-                                            title="Eliminar este lote"
-                                          >
-                                            <Trash2 size={15} />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))
+                                      );
+                                    })
                                   )}
                                 </div>
                               </td>
