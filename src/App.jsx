@@ -27,6 +27,7 @@ export default function App() {
   const [productoExpandidoId, setProductoExpandidoId] = useState(null);
   const [gastoExpandidoId, setGastoExpandidoId] = useState(null);
   const [editandoProductoId, setEditandoProductoId] = useState(null);
+  const [editandoGastoId, setEditandoGastoId] = useState(null);
   const [nuevoEfectivoBaseInput, setNuevoEfectivoBaseInput] = useState('');
 
   // Referencias para listener de Telegram
@@ -474,7 +475,23 @@ export default function App() {
     }
   };
 
-  const handleAgregarGasto = async (e) => {
+  // Cargar datos de gasto en el formulario para editar
+  const iniciarEdicionGasto = (g) => {
+    setEditandoGastoId(g.id);
+    setFormGasto({
+      concepto: g.concepto || '',
+      monto: g.monto || '',
+      tipo: g.tipo || 'Proveedor',
+      detalle: g.detalle || ''
+    });
+  };
+
+  const cancelarEdicionGasto = () => {
+    setEditandoGastoId(null);
+    setFormGasto({ concepto: '', monto: '', tipo: 'Proveedor', detalle: '' });
+  };
+
+  const handleAgregarOEditarGasto = async (e) => {
     e.preventDefault();
     const monto = Number(formGasto.monto);
     if (!formGasto.concepto.trim() || isNaN(monto) || monto <= 0) {
@@ -482,18 +499,29 @@ export default function App() {
     }
 
     try {
-      await addDoc(collection(db, 'gastos'), {
-        concepto: formGasto.concepto.trim(),
-        monto,
-        tipo: formGasto.tipo,
-        detalle: formGasto.detalle.trim() || 'Sin observaciones adicionales',
-        fecha: new Date().toISOString().split('T')[0],
-        creadoEn: Date.now()
-      });
+      if (editandoGastoId) {
+        await updateDoc(doc(db, 'gastos', editandoGastoId), {
+          concepto: formGasto.concepto.trim(),
+          monto,
+          tipo: formGasto.tipo,
+          detalle: formGasto.detalle.trim() || 'Sin observaciones adicionales'
+        });
+        setEditandoGastoId(null);
+        alert("Gasto actualizado con éxito.");
+      } else {
+        await addDoc(collection(db, 'gastos'), {
+          concepto: formGasto.concepto.trim(),
+          monto,
+          tipo: formGasto.tipo,
+          detalle: formGasto.detalle.trim() || 'Sin observaciones adicionales',
+          fecha: new Date().toISOString().split('T')[0],
+          creadoEn: Date.now()
+        });
+      }
 
       setFormGasto({ concepto: '', monto: '', tipo: 'Proveedor', detalle: '' });
     } catch (error) {
-      alert("Error al registrar el gasto: " + error.message);
+      alert("Error al guardar el gasto: " + error.message);
     }
   };
 
@@ -1070,11 +1098,24 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* FORMULARIO REGISTRAR / EDITAR GASTO */}
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-                <PlusCircle size={18} className="text-red-600" /> Registrar Nuevo Gasto
-              </h2>
-              <form onSubmit={handleAgregarGasto} className="space-y-3">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  {editandoGastoId ? <Edit2 size={18} className="text-amber-600" /> : <PlusCircle size={18} className="text-red-600" />}
+                  {editandoGastoId ? 'Editar Registro de Gasto' : 'Registrar Nuevo Gasto'}
+                </h2>
+                {editandoGastoId && (
+                  <button 
+                    onClick={cancelarEdicionGasto}
+                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 bg-slate-100 px-2 py-1 rounded-md"
+                  >
+                    <X size={14} /> Cancelar
+                  </button>
+                )}
+              </div>
+
+              <form onSubmit={handleAgregarOEditarGasto} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Concepto / Nombre</label>
                   <input 
@@ -1127,14 +1168,16 @@ export default function App() {
 
                 <button 
                   type="submit"
-                  className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold p-2 rounded-lg transition text-sm"
+                  className={`w-full font-semibold p-2 rounded-lg transition text-sm text-white ${
+                    editandoGastoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-red-600 hover:bg-red-700'
+                  }`}
                 >
-                  Guardar Gasto
+                  {editandoGastoId ? 'Guardar Cambios del Gasto' : 'Guardar Gasto'}
                 </button>
               </form>
             </div>
 
-            {/* TABLA DE GASTOS CON DESPLEGABLE DE DETALLES */}
+            {/* TABLA DE GASTOS CON EDICIÓN Y DESPLEGABLE */}
             <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
               <h2 className="text-base font-bold text-slate-800 mb-2">Historial de Gastos y Salidas de Dinero</h2>
               <p className="text-xs text-slate-500 mb-4">Haz clic sobre la fila o la flecha para desplegar las observaciones/detalles del gasto.</p>
@@ -1148,7 +1191,7 @@ export default function App() {
                       <th className="p-3">Concepto</th>
                       <th className="p-3">Tipo</th>
                       <th className="p-3">Monto</th>
-                      <th className="p-3 text-center">Acción</th>
+                      <th className="p-3 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1177,13 +1220,22 @@ export default function App() {
                               </td>
                               <td className="p-3 font-bold text-red-600">-${g.monto.toLocaleString()}</td>
                               <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                <button 
-                                  onClick={() => eliminarGasto(g.id)}
-                                  className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
-                                  title="Eliminar registro de gasto"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+                                <div className="flex justify-center items-center gap-1">
+                                  <button 
+                                    onClick={() => iniciarEdicionGasto(g)}
+                                    className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
+                                    title="Editar este gasto"
+                                  >
+                                    <Edit2 size={16} />
+                                  </button>
+                                  <button 
+                                    onClick={() => eliminarGasto(g.id)}
+                                    className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
+                                    title="Eliminar registro de gasto"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
 
