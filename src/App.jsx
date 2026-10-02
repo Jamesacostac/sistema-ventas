@@ -599,7 +599,8 @@ export default function App() {
     .filter(g => g.tipo === 'Proveedor' || g.tipo === 'Compra Productos')
     .reduce((acc, g) => acc + g.monto, 0);
 
-  const efectivoTotalEnCaja = cajaInicial + totalVentasEfectivoCobrado - totalGastosRegistrados;
+  // CORRECCIÓN APLICADA: Efectivo total en caja independiente sin restar gastos totales
+  const efectivoTotalEnCaja = cajaInicial + totalVentasEfectivoCobrado;
   const estadoPuntoCeroReposicion = totalReposicionDia - gastosEnReposiciones;
 
   const handleEnviarReporteTelegram = async () => {
@@ -798,230 +799,152 @@ export default function App() {
                 </select>
               </div>
 
-              {formVenta.productoId && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Sabor / Variante</label>
-                  <select 
-                    value={formVenta.variante}
-                    onChange={(e) => setFormVenta({ ...formVenta, variante: e.target.value })}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                  >
-                    <option value="TODAS">🤖 Auto (Prioriza la más próxima a vencer)</option>
-                    {obtenerLotesNorm(productos.find(p => p.id === formVenta.productoId) || {}).map(l => (
-                      <option key={l.id} value={l.variante}>
-                        {l.variante} (Cant: {l.cantidad} - Vence: {l.vencimiento})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Variante / Lote</label>
+                <select
+                  value={formVenta.variante}
+                  onChange={(e) => setFormVenta({ ...formVenta, variante: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                >
+                  <option value="TODAS">Automático (FEFO)</option>
+                  {(() => {
+                    const prodSel = productos.find(p => p.id === formVenta.productoId);
+                    if (!prodSel) return null;
+                    const lotes = obtenerLotesNorm(prodSel);
+                    const variantesUnicas = [...new Set(lotes.map(l => l.variante))];
+                    return variantesUnicas.map(v => (
+                      <option key={v} value={v}>{v}</option>
+                    ));
+                  })()}
+                </select>
+              </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
                 <input 
                   type="number" 
                   min="1"
+                  required
                   value={formVenta.cantidad}
-                  onChange={(e) => setFormVenta({ ...formVenta, cantidad: e.target.value })}
+                  onChange={(e) => setFormVenta({ ...formVenta, cantidad: Number(e.target.value) })}
                   className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Medio de Pago</label>
-                <select 
+                <select
                   value={formVenta.medioPago}
                   onChange={(e) => setFormVenta({ ...formVenta, medioPago: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium"
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                 >
                   <option value="Efectivo">Efectivo</option>
-                  <option value="Nequi">Nequi</option>
-                  <option value="Daviplata">Daviplata</option>
-                  <option value="Cortesía / Regalo">Cortesía / Regalo</option>
-                  <option value="Otro">Otro (Especificar)</option>
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Tarjeta">Tarjeta</option>
+                  <option value="Otro">Otro</option>
                 </select>
               </div>
 
-              {formVenta.medioPago === 'Otro' ? (
+              {formVenta.medioPago === 'Otro' && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Especifique Medio</label>
-                  <input 
-                    type="text" 
-                    required
-                    placeholder="Ej. Transferencia"
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Especificar Medio</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Cripto, Fiado..."
                     value={formVenta.otroMedioPago}
                     onChange={(e) => setFormVenta({ ...formVenta, otroMedioPago: e.target.value })}
-                    className="w-full p-2 border border-indigo-400 bg-indigo-50/50 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Estado de Pago</label>
-                  <select 
-                    value={formVenta.pagado}
-                    onChange={(e) => setFormVenta({ ...formVenta, pagado: e.target.value === 'true' })}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                  >
-                    <option value="true">Pagado</option>
-                    <option value="false">Pendiente (Fiado)</option>
-                  </select>
                 </div>
               )}
 
-              <button 
-                type="submit"
-                className="w-full bg-indigo-600 text-white font-semibold p-2 rounded-lg hover:bg-indigo-700 transition"
-              >
-                Guardar Venta
-              </button>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox" 
+                  id="pagadoCheck"
+                  checked={formVenta.pagado}
+                  onChange={(e) => setFormVenta({ ...formVenta, pagado: e.target.checked })}
+                  className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                />
+                <label htmlFor="pagadoCheck" className="text-xs font-semibold text-slate-700">¿Pagado al instante?</label>
+              </div>
+
+              <div className="lg:col-span-6 flex justify-end">
+                <button 
+                  type="submit"
+                  className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow"
+                >
+                  Registrar Venta
+                </button>
+              </div>
             </form>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 print:mb-4">
-            <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm print-card">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
-                <h2 className="text-lg font-bold text-slate-800">Registro de Ventas del Día</h2>
-                <div className="no-print flex items-center gap-2 flex-wrap">
-                  <button 
-                    onClick={() => window.print()}
-                    className="flex items-center gap-1.5 bg-slate-800 text-white px-3 py-1.5 rounded-lg hover:bg-slate-900 transition text-xs font-semibold shadow"
-                  >
-                    <Printer size={14} /> Generar Cierre (PDF)
-                  </button>
-                  <button 
-                    onClick={handleBorrarVentasPagadas}
-                    className="flex items-center gap-1.5 bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition text-xs font-semibold shadow"
-                  >
-                    <Trash2 size={14} /> Limpiar Ventas Pagadas
-                  </button>
-                </div>
-              </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+              <h2 className="text-base font-bold text-slate-800">Historial de Ventas Registradas</h2>
+              <button
+                onClick={handleBorrarVentasPagadas}
+                className="bg-rose-50 text-rose-600 border border-rose-200 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-rose-100 transition flex items-center gap-1.5 no-print"
+              >
+                <Trash2 size={14} /> Borrar Ventas Pagadas
+              </button>
+            </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse min-w-[500px]">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-                      <th className="p-3">Cliente</th>
-                      <th className="p-3">Producto</th>
-                      <th className="p-3">Sabor</th>
-                      <th className="p-3">Medio Pago</th>
-                      <th className="p-3">Total</th>
-                      <th className="p-3">Ganancia</th>
-                      <th className="p-3">Estado</th>
-                      <th className="p-3 text-center no-print">Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ventas.length === 0 ? (
-                      <tr>
-                        <td colSpan="8" className="text-center p-4 text-slate-400">No hay ventas registradas aún.</td>
-                      </tr>
-                    ) : (
-                      ventas.map((v) => (
-                        <tr 
-                          key={v.id} 
-                          className={`border-b border-slate-100 transition ${
-                            v.pagado ? 'bg-emerald-50/60' : 'bg-red-50/80'
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs md:text-sm">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                    <th className="p-3">Fecha</th>
+                    <th className="p-3">Cliente</th>
+                    <th className="p-3">Producto</th>
+                    <th className="p-3">Variante</th>
+                    <th className="p-3">Cant</th>
+                    <th className="p-3">Total</th>
+                    <th className="p-3">Pago</th>
+                    <th className="p-3">Estado</th>
+                    <th className="p-3 text-right no-print">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {ventas.map((v) => (
+                    <tr key={v.id} className="hover:bg-slate-50 transition">
+                      <td className="p-3 text-slate-500">{v.fecha}</td>
+                      <td className="p-3 font-medium text-slate-800">{v.cliente}</td>
+                      <td className="p-3 font-semibold text-indigo-600">{v.producto}</td>
+                      <td className="p-3 text-slate-500">{v.variante}</td>
+                      <td className="p-3">{v.cantidad}</td>
+                      <td className="p-3 font-bold text-slate-900">${v.total.toLocaleString()}</td>
+                      <td className="p-3"><span className="px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-600">{v.medioPago}</span></td>
+                      <td className="p-3">
+                        <button 
+                          onClick={() => togglePago(v.id, v.pagado)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 w-fit transition ${
+                            v.pagado ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
                           }`}
                         >
-                          <td className="p-3 font-medium">{v.cliente}</td>
-                          <td className="p-3">{v.producto} (x{v.cantidad})</td>
-                          <td className="p-3 text-xs text-slate-500 font-medium">{v.variante || 'General'}</td>
-                          <td className="p-3">
-                            <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold border border-slate-200">
-                              <CreditCard size={12} /> {v.medioPago}
-                            </span>
-                          </td>
-                          <td className="p-3 font-bold">${v.total}</td>
-                          <td className="p-3 text-emerald-700 font-semibold">${v.ganancia}</td>
-                          <td className="p-3">
-                            <button 
-                              onClick={() => togglePago(v.id, v.pagado)}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 no-print ${
-                                v.pagado ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'
-                              }`}
-                            >
-                              {v.pagado ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                              {v.pagado ? 'Pagado' : 'Pendiente'}
-                            </button>
-                            <span className="print-only text-xs font-semibold">
-                              {v.pagado ? 'Pagado' : 'Pendiente'}
-                            </span>
-                          </td>
-                          <td className="p-3 text-center no-print">
-                            <button 
-                              onClick={() => eliminarVenta(v.id)} 
-                              className="text-red-500 hover:text-red-700 p-1 rounded"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card lg:col-span-1 no-print">
-              <h2 className="text-base font-bold mb-3 text-slate-800">Estado Rápido de Stock</h2>
-              <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
-                {productos.map((p) => {
-                  const stockTotal = getStockTotalProducto(p);
-                  const proxVenc = getProximoVencimientoProducto(p);
-                  return (
-                    <div 
-                      key={p.id} 
-                      className={`p-2.5 rounded-lg border flex justify-between items-center text-xs ${
-                        stockTotal <= 0
-                          ? 'bg-red-50 border-red-300 text-red-900 font-bold'
-                          : stockTotal <= 3 
-                          ? 'bg-amber-50 border-amber-300 text-amber-900 font-semibold' 
-                          : 'bg-slate-50 border-slate-200'
-                      }`}
-                    >
-                      <div>
-                        <p className="text-slate-900 font-medium">{p.nombre}</p>
-                        <p className="opacity-80">Próx. Vence: {proxVenc}</p>
-                      </div>
-                      <span className="font-bold text-sm">
-                        {stockTotal <= 0 ? '❌ 0' : `${stockTotal} un.`}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print-grid">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card">
-              <h3 className="text-sm font-bold mb-3 text-slate-800">Ventas Acumuladas ($)</h3>
-              <div className="h-48 md:h-56 print:h-44">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={datosVentasSemanales}>
-                    <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="ventas" stroke="#4f46e5" strokeWidth={2.5} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print-card">
-              <h3 className="text-sm font-bold mb-3 text-slate-800">Productos más Vendidos (Unidades)</h3>
-              <div className="h-48 md:h-56 print:h-44">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={datosProductosMasVendidos}>
-                    <XAxis dataKey="nombre" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Bar dataKey="unidades" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+                          {v.pagado ? <CheckCircle size={12} /> : <XCircle size={12} />}
+                          {v.pagado ? 'Pagado' : 'Pendiente'}
+                        </button>
+                      </td>
+                      <td className="p-3 text-right no-print">
+                        <button 
+                          onClick={() => eliminarVenta(v.id)}
+                          className="text-rose-500 hover:text-rose-700 p-1"
+                          title="Eliminar venta"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {ventas.length === 0 && (
+                    <tr>
+                      <td colSpan="9" className="p-6 text-center text-slate-400">No hay ventas registradas todavía.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </>
@@ -1031,237 +954,169 @@ export default function App() {
       {pestana === 'estado_cuenta' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-gradient-to-br from-indigo-900 to-indigo-700 text-white p-5 rounded-xl shadow-sm">
-              <div className="flex justify-between items-start mb-2">
-                <p className="text-xs uppercase font-semibold text-indigo-200">Efectivo Total en Caja (Vivo)</p>
-                <Wallet size={20} className="text-indigo-300" />
+            {/* Tarjeta de Efectivo Total en Caja (Corregida y limpia) */}
+            <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xs font-bold tracking-wider uppercase opacity-80">Efectivo Total en Caja (Vivo)</h3>
+                  <p className="text-3xl font-extrabold mt-1">${efectivoTotalEnCaja.toLocaleString()}</p>
+                </div>
+                <div className="p-3 bg-white/10 rounded-xl">
+                  <Wallet className="w-6 h-6 text-white" />
+                </div>
               </div>
-              <h3 className="text-2xl md:text-3xl font-extrabold">${efectivoTotalEnCaja.toLocaleString()}</h3>
-              <p className="text-xs text-indigo-200 mt-2">
-                Base ({cajaInicial.toLocaleString()}) + Ventas Efectivo ({totalVentasEfectivoCobrado.toLocaleString()}) - Gastos ({totalGastosRegistrados.toLocaleString()})
-              </p>
             </div>
 
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <div className="flex justify-between items-start mb-2">
-                <p className="text-xs font-semibold text-slate-500 uppercase">Recuperación Reposiciones (Punto Cero)</p>
-                <RefreshCw size={20} className="text-indigo-600" />
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Recuperación Reposiciones (Punto Cero)</h3>
+                  <p className={`text-3xl font-extrabold mt-1 ${estadoPuntoCeroReposicion >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    ${estadoPuntoCeroReposicion.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {estadoPuntoCeroReposicion >= 0 ? 'Reposiciones cubiertas por completo.' : `Falta por recuperar $${Math.abs(estadoPuntoCeroReposicion).toLocaleString()} para quedar en $0.`}
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                  <RefreshCw className="w-6 h-6" />
+                </div>
               </div>
-              <h3 className={`text-2xl md:text-3xl font-extrabold ${estadoPuntoCeroReposicion >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                ${estadoPuntoCeroReposicion.toLocaleString()}
-              </h3>
-              <p className="text-xs text-slate-500 mt-2">
-                {estadoPuntoCeroReposicion < 0 
-                  ? `Falta por recuperar $${Math.abs(estadoPuntoCeroReposicion).toLocaleString()} para quedar en $0.`
-                  : estadoPuntoCeroReposicion === 0
-                  ? '¡Punto de equilibrio alcanzado! ($0 en saldo de reposición).'
-                  : `¡Ganancia neta sobre reposición: +$${estadoPuntoCeroReposicion.toLocaleString()}!`}
-              </p>
             </div>
 
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <div className="flex justify-between items-start mb-2">
-                <p className="text-xs font-semibold text-slate-500 uppercase">Gastos Totales Registrados</p>
-                <TrendingDown size={20} className="text-red-500" />
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Gastos Totales Registrados</h3>
+                  <p className="text-3xl font-extrabold text-rose-600 mt-1">${totalGastosRegistrados.toLocaleString()}</p>
+                  <p className="text-xs text-slate-500 mt-2">Incluye proveedores (${gastosEnReposiciones.toLocaleString()}) y otros egresos.</p>
+                </div>
+                <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
+                  <TrendingDown className="w-6 h-6" />
+                </div>
               </div>
-              <h3 className="text-2xl md:text-3xl font-extrabold text-red-600">${totalGastosRegistrados.toLocaleString()}</h3>
-              <p className="text-xs text-slate-500 mt-2">
-                Incluye proveedores (${gastosEnReposiciones.toLocaleString()}) y otros egresos.
-              </p>
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          {/* Ajustar efectivo base no registrado */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm no-print">
             <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
               <DollarSign size={18} className="text-emerald-600" /> Ajustar Efectivo Base No Registrado
             </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              Ingresa la cantidad de dinero acumulado físicamente que no se había registrado previamente.
-            </p>
-            <form onSubmit={handleGuardarEfectivoBase} className="flex gap-3 max-w-md">
-              <input 
-                type="number" 
-                required
-                min="0"
-                placeholder={`Actual: $${cajaInicial}`}
+            <p className="text-xs text-slate-500 mb-4">Ingresa la cantidad de dinero acumulado físicamente que no se había registrado previamente.</p>
+            <form onSubmit={handleGuardarEfectivoBase} className="flex gap-3 items-center">
+              <input
+                type="number"
+                placeholder={`Actual: ${cajaInicial}`}
                 value={nuevoEfectivoBaseInput}
                 onChange={(e) => setNuevoEfectivoBaseInput(e.target.value)}
-                className="flex-1 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="p-2 border border-slate-300 rounded-lg text-sm w-48 focus:ring-2 focus:ring-indigo-500 outline-none"
               />
-              <button 
-                type="submit" 
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg transition text-sm flex items-center gap-1"
+              <button
+                type="submit"
+                className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition flex items-center gap-2 shadow"
               >
                 <Save size={16} /> Guardar Base
               </button>
             </form>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* FORMULARIO REGISTRAR / EDITAR GASTO */}
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  {editandoGastoId ? <Edit2 size={18} className="text-amber-600" /> : <PlusCircle size={18} className="text-red-600" />}
-                  {editandoGastoId ? 'Editar Registro de Gasto' : 'Registrar Nuevo Gasto'}
-                </h2>
+          {/* Registro de Gastos y Proveedores */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <h2 className="text-base font-bold text-slate-800 mb-4">
+              {editandoGastoId ? 'Editar Gasto / Proveedor' : 'Registrar Nuevo Gasto o Compra a Proveedor'}
+            </h2>
+            <form onSubmit={handleAgregarOEditarGasto} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-6">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Concepto</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Compra de Limones, Transporte..."
+                  value={formGasto.concepto}
+                  onChange={(e) => setFormGasto({ ...formGasto, concepto: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Monto ($)</label>
+                <input
+                  type="number"
+                  placeholder="Ej. 15000"
+                  value={formGasto.monto}
+                  onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Gasto</label>
+                <select
+                  value={formGasto.tipo}
+                  onChange={(e) => setFormGasto({ ...formGasto, tipo: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                >
+                  <option value="Proveedor">Proveedor / Reposición</option>
+                  <option value="Compra Productos">Compra Productos</option>
+                  <option value="Operativo">Gasto Operativo</option>
+                  <option value="Otro">Otro Egreso</option>
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow flex-1"
+                >
+                  {editandoGastoId ? 'Actualizar' : 'Agregar Gasto'}
+                </button>
                 {editandoGastoId && (
-                  <button 
+                  <button
+                    type="button"
                     onClick={cancelarEdicionGasto}
-                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 bg-slate-100 px-2 py-1 rounded-md"
+                    className="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
                   >
-                    <X size={14} /> Cancelar
+                    Cancelar
                   </button>
                 )}
               </div>
+            </form>
 
-              <form onSubmit={handleAgregarOEditarGasto} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Concepto / Nombre</label>
-                  <input 
-                    type="text"
-                    required
-                    placeholder="Ej. Pago Proveedor Bebidas"
-                    value={formGasto.concepto}
-                    onChange={(e) => setFormGasto({ ...formGasto, concepto: e.target.value })}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Monto ($)</label>
-                  <input 
-                    type="number"
-                    required
-                    min="1"
-                    placeholder="Ej. 50000"
-                    value={formGasto.monto}
-                    onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Gasto</label>
-                  <select 
-                    value={formGasto.tipo}
-                    onChange={(e) => setFormGasto({ ...formGasto, tipo: e.target.value })}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium"
-                  >
-                    <option value="Proveedor">Proveedor (Reposición Stock)</option>
-                    <option value="Compra Productos">Compra Productos</option>
-                    <option value="Servicios / Operativo">Servicios / Operativo</option>
-                    <option value="Otro">Otro Gasto</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Detalle / Observaciones</label>
-                  <textarea 
-                    rows="2"
-                    placeholder="Escribe detalles adicionales de la compra o gasto..."
-                    value={formGasto.detalle}
-                    onChange={(e) => setFormGasto({ ...formGasto, detalle: e.target.value })}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-
-                <button 
-                  type="submit"
-                  className={`w-full font-semibold p-2 rounded-lg transition text-sm text-white ${
-                    editandoGastoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-red-600 hover:bg-red-700'
-                  }`}
-                >
-                  {editandoGastoId ? 'Guardar Cambios del Gasto' : 'Guardar Gasto'}
-                </button>
-              </form>
-            </div>
-
-            {/* TABLA DE GASTOS CON EDICIÓN Y DESPLEGABLE */}
-            <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <h2 className="text-base font-bold text-slate-800 mb-2">Historial de Gastos y Salidas de Dinero</h2>
-              <p className="text-xs text-slate-500 mb-4">Haz clic sobre la fila o la flecha para desplegar las observaciones/detalles del gasto.</p>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse min-w-[500px]">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-                      <th className="p-3 w-8"></th>
-                      <th className="p-3">Fecha</th>
-                      <th className="p-3">Concepto</th>
-                      <th className="p-3">Tipo</th>
-                      <th className="p-3">Monto</th>
-                      <th className="p-3 text-center">Acciones</th>
+            <h3 className="text-sm font-bold text-slate-700 mb-3">Historial de Gastos y Egresos</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs md:text-sm">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                    <th className="p-3">Fecha</th>
+                    <th className="p-3">Concepto</th>
+                    <th className="p-3">Tipo</th>
+                    <th className="p-3">Monto</th>
+                    <th className="p-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {gastos.map((g) => (
+                    <tr key={g.id} className="hover:bg-slate-50 transition">
+                      <td className="p-3 text-slate-500">{g.fecha}</td>
+                      <td className="p-3 font-medium text-slate-800">{g.concepto}</td>
+                      <td className="p-3"><span className="px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-600">{g.tipo}</span></td>
+                      <td className="p-3 font-bold text-rose-600">${g.monto.toLocaleString()}</td>
+                      <td className="p-3 text-right flex justify-end gap-2">
+                        <button onClick={() => iniciarEdicionGasto(g)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Editar gasto">
+                          <Edit2 size={16} />
+                        </button>
+                        <button onClick={() => eliminarGasto(g.id)} className="text-rose-500 hover:text-rose-700 p-1" title="Eliminar gasto">
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {gastos.length === 0 ? (
-                      <tr>
-                        <td colSpan="6" className="text-center p-4 text-slate-400">No se han registrado gastos aún.</td>
-                      </tr>
-                    ) : (
-                      gastos.map((g) => {
-                        const estaExpandido = gastoExpandidoId === g.id;
-                        return (
-                          <React.Fragment key={g.id}>
-                            <tr 
-                              onClick={() => setGastoExpandidoId(estaExpandido ? null : g.id)}
-                              className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition"
-                            >
-                              <td className="p-3 text-slate-400">
-                                {estaExpandido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                              </td>
-                              <td className="p-3 text-slate-500 text-xs">{g.fecha}</td>
-                              <td className="p-3 font-medium text-slate-900">{g.concepto}</td>
-                              <td className="p-3">
-                                <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-medium border border-red-100">
-                                  {g.tipo}
-                                </span>
-                              </td>
-                              <td className="p-3 font-bold text-red-600">-${g.monto.toLocaleString()}</td>
-                              <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex justify-center items-center gap-1">
-                                  <button 
-                                    onClick={() => iniciarEdicionGasto(g)}
-                                    className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
-                                    title="Editar este gasto"
-                                  >
-                                    <Edit2 size={16} />
-                                  </button>
-                                  <button 
-                                    onClick={() => eliminarGasto(g.id)}
-                                    className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
-                                    title="Eliminar registro de gasto"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-
-                            {/* SUB-FILA DESPLEGABLE CON DETALLES/OBSERVACIONES */}
-                            {estaExpandido && (
-                              <tr className="bg-red-50/40 border-b border-red-100">
-                                <td colSpan="6" className="p-4">
-                                  <div className="bg-white p-3 rounded-lg border border-red-100 shadow-sm flex items-start gap-2 text-xs">
-                                    <FileText size={16} className="text-red-500 mt-0.5 shrink-0" />
-                                    <div>
-                                      <p className="font-bold text-slate-700 mb-0.5">Observaciones / Detalle del Gasto:</p>
-                                      <p className="text-slate-600 leading-relaxed whitespace-pre-line">
-                                        {g.detalle || 'Sin observaciones registradas.'}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                  {gastos.length === 0 && (
+                    <tr>
+                      <td colSpan="5" className="p-6 text-center text-slate-400">No hay gastos registrados.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1269,284 +1124,202 @@ export default function App() {
 
       {/* ==================== PESTAÑA INVENTARIO ==================== */}
       {pestana === 'inventario' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="no-print bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                {editandoProductoId ? <Edit2 size={20} className="text-amber-600" /> : <PlusCircle size={20} className="text-indigo-600" />}
-                {editandoProductoId ? 'Editar Datos del Producto' : 'Registrar Mercancía / Lote'}
-              </h2>
-              {editandoProductoId && (
-                <button 
-                  onClick={cancelarEdicion}
-                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 bg-slate-100 px-2 py-1 rounded-md"
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm no-print">
+            <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Package size={18} className="text-indigo-600" />
+              {editandoProductoId ? 'Editar Producto Base' : 'Añadir Nuevo Producto o Lote (FEFO)'}
+            </h2>
+            <form onSubmit={handleGuardarProducto} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Producto</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Limonada Natural"
+                  value={formProducto.nombre}
+                  onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required={!editandoProductoId}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Unitario ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Ej. 1000"
+                  value={formProducto.costo}
+                  onChange={(e) => setFormProducto({ ...formProducto, costo: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required={!editandoProductoId}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Precio de Venta ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Ej. 2500"
+                  value={formProducto.precio}
+                  onChange={(e) => setFormProducto({ ...formProducto, precio: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required={!editandoProductoId}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
+                <select
+                  value={formProducto.categoria}
+                  onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                 >
-                  <X size={14} /> Cancelar
-                </button>
-              )}
-            </div>
-
-            <form onSubmit={handleGuardarProducto} className="space-y-3">
-              {!editandoProductoId && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Seleccionar Producto Existente</label>
-                  <select 
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                    value={formProducto.productoId}
-                    onChange={(e) => setFormProducto({ ...formProducto, productoId: e.target.value })}
-                  >
-                    <option value="">-- Crear Nuevo Producto Base --</option>
-                    {productos.map(p => (
-                      <option key={p.id} value={p.id}>Añadir Lote a: {p.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {(!formProducto.productoId || editandoProductoId) && (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Producto</label>
-                    <input 
-                      type="text" 
-                      placeholder="Ej. Mr Tea"
-                      value={formProducto.nombre}
-                      onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
-                    <select
-                      value={formProducto.categoria}
-                      onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                    >
-                      <option value="">Seleccionar Categoría...</option>
-                      {categorias.map(cat => (
-                        <option key={cat.id} value={cat.nombre}>{cat.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Proveedor ($)</label>
-                      <input 
-                        type="number" 
-                        min="0"
-                        placeholder="3000"
-                        value={formProducto.costo}
-                        onChange={(e) => setFormProducto({ ...formProducto, costo: e.target.value })}
-                        className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Precio Venta ($)</label>
-                      <input 
-                        type="number" 
-                        min="0"
-                        placeholder="4200"
-                        value={formProducto.precio}
-                        onChange={(e) => setFormProducto({ ...formProducto, precio: e.target.value })}
-                        className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  {formProducto.costo && formProducto.precio && (
-                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between font-semibold">
-                      <span className="flex items-center gap-1">
-                        <TrendingUp size={14} className="text-emerald-600" /> Ganancia Unitaria:
-                      </span>
-                      <span className="text-sm font-bold text-emerald-700">${gananciaUnitariaPrev.toLocaleString()}</span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              <div className="border-t border-slate-200 pt-3">
-                <p className="text-xs font-bold text-indigo-600 uppercase mb-2">
-                  {editandoProductoId ? 'Añadir o Modificar Lote (Opcional)' : 'Detalles del Lote / Sabor'}
-                </p>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Sabor / Variante</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ej. Limonada, Durazno, Original..."
-                    value={formProducto.variante}
-                    onChange={(e) => setFormProducto({ ...formProducto, variante: e.target.value })}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
-                    <input 
-                      type="number" 
-                      min="1"
-                      placeholder="10"
-                      value={formProducto.cantidad}
-                      onChange={(e) => setFormProducto({ ...formProducto, cantidad: e.target.value })}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha Vencimiento</label>
-                    <input 
-                      type="date" 
-                      value={formProducto.vencimiento}
-                      onChange={(e) => setFormProducto({ ...formProducto, vencimiento: e.target.value })}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-                </div>
+                  <option value="">Sin categoría</option>
+                  {categorias.map(c => (
+                    <option key={c.id} value={c.nombre}>{c.nombre}</option>
+                  ))}
+                </select>
               </div>
 
-              <button 
-                type="submit"
-                className={`w-full font-semibold p-2.5 rounded-lg transition text-sm mt-2 text-white ${
-                  editandoProductoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
-                }`}
-              >
-                {editandoProductoId ? 'Guardar Cambios del Producto' : formProducto.productoId ? 'Añadir Lote al Producto' : 'Guardar Nuevo Producto'}
-              </button>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Variante / Sabor del Lote</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Botella 500ml, Frutos Rojos..."
+                  value={formProducto.variante}
+                  onChange={(e) => setFormProducto({ ...formProducto, variante: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad del Lote</label>
+                <input
+                  type="number"
+                  placeholder="Ej. 20"
+                  value={formProducto.cantidad}
+                  onChange={(e) => setFormProducto({ ...formProducto, cantidad: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de Vencimiento</label>
+                <input
+                  type="date"
+                  value={formProducto.vencimiento}
+                  onChange={(e) => setFormProducto({ ...formProducto, vencimiento: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow flex-1"
+                >
+                  {editandoProductoId ? 'Guardar Cambios' : 'Añadir al Inventario'}
+                </button>
+                {editandoProductoId && (
+                  <button
+                    type="button"
+                    onClick={cancelarEdicion}
+                    className="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
             </form>
           </div>
 
-          <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-            <h2 className="text-lg font-bold mb-4 text-slate-800">Inventario de Productos y Lotes Desplegables</h2>
-            <p className="text-xs text-slate-500 mb-3">Haz clic en la flecha para desplegar las fechas de vencimiento, sabores y ganancias estimadas.</p>
-            
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-200">
+              <h2 className="text-base font-bold text-slate-800">Inventario por Lotes (Control FEFO)</h2>
+            </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse min-w-[550px]">
+              <table className="w-full text-left border-collapse text-xs md:text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-                    <th className="p-3 w-8"></th>
+                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
                     <th className="p-3">Producto</th>
                     <th className="p-3">Categoría</th>
                     <th className="p-3">Costo</th>
                     <th className="p-3">Precio</th>
-                    <th className="p-3">Ganancia c/u</th>
                     <th className="p-3">Stock Total</th>
                     <th className="p-3">Próx. Vencimiento</th>
-                    <th className="p-3 text-center">Acción</th>
+                    <th className="p-3 text-right no-print">Acciones</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {productos.length === 0 ? (
-                    <tr>
-                      <td colSpan="9" className="text-center p-4 text-slate-400">No hay productos en inventario.</td>
-                    </tr>
-                  ) : (
-                    productos.map((p) => {
-                      const lotesNormalizados = obtenerLotesNorm(p);
-                      const stockTotal = getStockTotalProducto(p);
-                      const proxVenc = getProximoVencimientoProducto(p);
-                      const estaExpandido = productoExpandidoId === p.id;
-                      const gananciaUnitaria = (Number(p.precio) || 0) - (Number(p.costo) || 0);
+                <tbody className="divide-y divide-slate-200">
+                  {productos.map((p) => {
+                    const stockTotal = getStockTotalProducto(p);
+                    const proxVenc = getProximoVencimientoProducto(p);
+                    const lotes = obtenerLotesNorm(p);
+                    const expandido = productoExpandidoId === p.id;
 
-                      return (
-                        <React.Fragment key={p.id}>
-                          <tr 
-                            onClick={() => setProductoExpandidoId(estaExpandido ? null : p.id)}
-                            className="border-b border-slate-100 hover:bg-indigo-50/40 cursor-pointer transition"
-                          >
-                            <td className="p-3 text-slate-400">
-                              {estaExpandido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                            </td>
-                            <td className="p-3 font-semibold text-slate-900">{p.nombre}</td>
-                            <td className="p-3">
-                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs border border-slate-200 font-medium">
-                                {p.categoria || 'Sin categoría'}
-                              </span>
-                            </td>
-                            <td className="p-3 text-slate-600">${p.costo}</td>
-                            <td className="p-3 font-bold text-slate-900">${p.precio}</td>
-                            <td className="p-3 font-semibold text-emerald-600">${gananciaUnitaria.toLocaleString()}</td>
-                            <td className="p-3">
-                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                stockTotal <= 0 ? 'bg-red-100 text-red-800' : stockTotal <= 3 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                              }`}>
-                                {stockTotal <= 0 ? 'Agotado (0)' : `${stockTotal} un.`}
-                              </span>
-                            </td>
-                            <td className="p-3 text-slate-600 text-xs font-medium">{proxVenc}</td>
-                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex justify-center items-center gap-1">
-                                <button 
-                                  onClick={() => iniciarEdicionProductoBase(p)}
-                                  className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
-                                  title="Editar nombre, costo y precio de este producto"
-                                >
-                                  <Edit2 size={16} />
-                                </button>
-                                <button 
-                                  onClick={() => eliminarProductoCompleto(p.id)}
-                                  className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
-                                  title="Eliminar producto completo"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+                    return (
+                      <React.Fragment key={p.id}>
+                        <tr className="hover:bg-slate-50 transition">
+                          <td className="p-3 font-semibold text-indigo-600">
+                            <button
+                              onClick={() => setProductoExpandidoId(expandido ? null : p.id)}
+                              className="flex items-center gap-1.5 text-left hover:underline"
+                            >
+                              {expandido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              {p.nombre}
+                            </button>
+                          </td>
+                          <td className="p-3 text-slate-500">{p.categoria || 'Sin categoría'}</td>
+                          <td className="p-3">${p.costo}</td>
+                          <td className="p-3 font-bold text-slate-900">${p.precio}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              stockTotal <= 0 ? 'bg-rose-100 text-rose-700' : stockTotal <= 3 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                            }`}>
+                              {stockTotal} un.
+                            </span>
+                          </td>
+                          <td className="p-3 text-slate-600">{proxVenc}</td>
+                          <td className="p-3 text-right no-print flex justify-end gap-2">
+                            <button onClick={() => iniciarEdicionProductoBase(p)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Editar datos base">
+                              <Edit2 size={16} />
+                            </button>
+                            <button onClick={() => eliminarProductoCompleto(p.id)} className="text-rose-500 hover:text-rose-700 p-1" title="Eliminar producto completo">
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                        {expandido && (
+                          <tr className="bg-slate-50/80">
+                            <td colSpan="7" className="p-4">
+                              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-inner">
+                                <p className="text-xs font-bold text-slate-700 mb-2 uppercase tracking-wide">Desglose de Lotes (FEFO):</p>
+                                <div className="space-y-2">
+                                  {lotes.map(lote => (
+                                    <div key={lote.id} className="flex justify-between items-center text-xs bg-slate-50 p-2 rounded border border-slate-100">
+                                      <div>
+                                        <span className="font-semibold text-slate-800">Variante: {lote.variante}</span> | 
+                                        <span className="text-slate-600 ml-2">Cantidad: <b>{lote.cantidad}</b></span> | 
+                                        <span className="text-slate-500 ml-2">Vencimiento: {lote.vencimiento}</span>
+                                      </div>
+                                      <div className="flex gap-2 no-print">
+                                        <button onClick={() => handleEditarLote(p.id, lote.id)} className="text-indigo-600 hover:underline">Editar</button>
+                                        <button onClick={() => handleEliminarLote(p.id, lote.id)} className="text-rose-600 hover:underline">Eliminar</button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {lotes.length === 0 && (
+                                    <p className="text-xs text-slate-400">No hay lotes registrados para este producto.</p>
+                                  )}
+                                </div>
                               </div>
                             </td>
                           </tr>
-
-                          {/* Sub-tabla desplegable de lotes */}
-                          {estaExpandido && (
-                            <tr className="bg-slate-50/90 border-b border-indigo-100">
-                              <td colSpan="9" className="p-4">
-                                <div className="text-xs font-bold text-slate-500 uppercase mb-2">Sabores / Lotes Registrados y Ganancias:</div>
-                                <div className="space-y-1.5">
-                                  {lotesNormalizados.length === 0 ? (
-                                    <p className="text-xs text-slate-400 italic">No hay lotes activos para este producto. Agrega uno en el formulario de la izquierda.</p>
-                                  ) : (
-                                    lotesNormalizados.map((lote) => {
-                                      const gananciaLoteTotal = gananciaUnitaria * lote.cantidad;
-                                      return (
-                                        <div key={lote.id} className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200 text-xs shadow-sm">
-                                          <div className="flex items-center gap-4 flex-wrap">
-                                            <span className="font-bold text-slate-800">📦 {lote.variante || 'General'}</span>
-                                            <span className="text-slate-600">Stock: <strong>{lote.cantidad} un.</strong></span>
-                                            <span className="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-semibold">
-                                              Vence: {lote.vencimiento}
-                                            </span>
-                                            <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-bold">
-                                              Ganancia total lote: +${gananciaLoteTotal.toLocaleString()}
-                                            </span>
-                                          </div>
-                                          <div className="flex items-center gap-1">
-                                            <button 
-                                              onClick={() => handleEditarLote(p.id, lote.id)}
-                                              className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50"
-                                              title="Editar cantidad o fecha de este lote"
-                                            >
-                                              <Edit2 size={15} />
-                                            </button>
-                                            <button 
-                                              onClick={() => handleEliminarLote(p.id, lote.id)}
-                                              className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50"
-                                              title="Eliminar este lote"
-                                            >
-                                              <Trash2 size={15} />
-                                            </button>
-                                          </div>
-                                        </div>
-                                      );
-                                    })
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                  {productos.length === 0 && (
+                    <tr>
+                      <td colSpan="7" className="p-6 text-center text-slate-400">No hay productos en el inventario.</td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -1557,70 +1330,55 @@ export default function App() {
 
       {/* ==================== PESTAÑA CATEGORÍAS ==================== */}
       {pestana === 'categorias' && (
-        <div className="max-w-2xl mx-auto space-y-6">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-            <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
-              <Tag size={20} className="text-indigo-600" /> Nueva Categoría
-            </h2>
-            <form onSubmit={handleAgregarCategoria} className="flex gap-2">
-              <input 
-                type="text"
-                placeholder="Nombre de la categoría (ej. Bebidas, Snacks, Galletas)"
-                value={nuevaCategoria}
-                onChange={(e) => setNuevaCategoria(e.target.value)}
-                className="flex-1 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
-              <button 
-                type="submit"
-                className="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
-              >
-                Agregar
-              </button>
-            </form>
-          </div>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-xl mx-auto">
+          <h2 className="text-base font-bold text-slate-800 mb-4">Gestión de Categorías</h2>
+          <form onSubmit={handleAgregarCategoria} className="flex gap-3 mb-6">
+            <input
+              type="text"
+              placeholder="Nueva categoría..."
+              value={nuevaCategoria}
+              onChange={(e) => setNuevaCategoria(e.target.value)}
+              className="flex-1 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+            />
+            <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow">
+              Agregar
+            </button>
+          </form>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-            <h2 className="text-lg font-bold mb-4 text-slate-800">Categorías Existentes</h2>
-            <ul className="divide-y divide-slate-100">
-              {categorias.length === 0 ? (
-                <p className="text-slate-400 text-sm text-center py-4">No se han creado categorías aún.</p>
-              ) : (
-                categorias.map((cat) => (
-                  <li key={cat.id} className="flex justify-between items-center py-3">
-                    <span className="font-medium text-slate-800 text-sm">{cat.nombre}</span>
-                    <button
-                      onClick={() => eliminarCategoria(cat.id)}
-                      className="text-red-500 hover:text-red-700 p-1 rounded transition"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
+          <div className="space-y-2">
+            {categorias.map(c => (
+              <div key={c.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="text-sm font-medium text-slate-800">{c.nombre}</span>
+                <button onClick={() => eliminarCategoria(c.id)} className="text-rose-500 hover:text-rose-700 p-1">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+            {categorias.length === 0 && (
+              <p className="text-center text-slate-400 text-sm py-4">No hay categorías creadas.</p>
+            )}
           </div>
         </div>
       )}
 
-      {/* ==================== PESTAÑA CARTA DE PRODUCTOS ==================== */}
+      {/* ==================== PESTAÑA CARTA ==================== */}
       {pestana === 'catalogo' && (
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <h2 className="text-xl font-bold mb-6 text-slate-900 text-center">Menú de Productos</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {productos.map((p) => {
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-2xl mx-auto text-center">
+          <BookOpen size={48} className="mx-auto text-indigo-600 mb-3" />
+          <h2 className="text-xl font-bold text-slate-900 mb-1">Carta y Menú Público</h2>
+          <p className="text-sm text-slate-500 mb-6">Vista previa rápida de los productos disponibles para ofrecer a los clientes.</p>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+            {productos.map(p => {
               const stockTotal = getStockTotalProducto(p);
+              if (stockTotal <= 0) return null;
               return (
-                <div key={p.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex justify-between items-center">
-                  <div>
-                    <h3 className="font-bold text-slate-900">{p.nombre}</h3>
-                    <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-medium border border-indigo-100">
-                      {p.categoria || 'General'}
-                    </span>
+                <div key={p.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50">
+                  <div className="flex justify-between items-start mb-1">
+                    <h3 className="font-bold text-slate-800">{p.nombre}</h3>
+                    <span className="font-extrabold text-indigo-600">${p.precio}</span>
                   </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-indigo-600">${p.precio}</p>
-                    <p className="text-xs text-slate-500">{stockTotal > 0 ? `Disponible: ${stockTotal}` : 'Agotado'}</p>
-                  </div>
+                  <p className="text-xs text-slate-500">{p.categoria || 'General'} — Stock: {stockTotal} un.</p>
                 </div>
               );
             })}
