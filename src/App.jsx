@@ -10,7 +10,7 @@ import {
 import { 
   CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText
 } from 'lucide-react';
 
 export default function App() {
@@ -25,6 +25,7 @@ export default function App() {
 
   // Estados desplegables y edición
   const [productoExpandidoId, setProductoExpandidoId] = useState(null);
+  const [gastoExpandidoId, setGastoExpandidoId] = useState(null);
   const [editandoProductoId, setEditandoProductoId] = useState(null);
   const [nuevoEfectivoBaseInput, setNuevoEfectivoBaseInput] = useState('');
 
@@ -35,7 +36,7 @@ export default function App() {
   useEffect(() => { productosRef.current = productos; }, [productos]);
   useEffect(() => { ventasRef.current = ventas; }, [ventas]);
 
-  // Normalizador de lotes para garantizar compatibilidad
+  // Normalizador de lotes
   const obtenerLotesNorm = (p) => {
     if (Array.isArray(p.lotes) && p.lotes.length > 0) {
       return p.lotes;
@@ -143,7 +144,7 @@ export default function App() {
 
   const [nuevaCategoria, setNuevaCategoria] = useState('');
 
-  // Cuentas de previsualización de ganancia en formulario
+  // Ganancia estimada en formulario
   const costoNum = Number(formProducto.costo) || 0;
   const precioNum = Number(formProducto.precio) || 0;
   const gananciaUnitariaPrev = precioNum - costoNum;
@@ -485,7 +486,7 @@ export default function App() {
         concepto: formGasto.concepto.trim(),
         monto,
         tipo: formGasto.tipo,
-        detalle: formGasto.detalle.trim() || 'Sin observaciones',
+        detalle: formGasto.detalle.trim() || 'Sin observaciones adicionales',
         fecha: new Date().toISOString().split('T')[0],
         creadoEn: Date.now()
       });
@@ -1117,7 +1118,7 @@ export default function App() {
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Detalle / Observaciones</label>
                   <textarea 
                     rows="2"
-                    placeholder="Detalles adicionales..."
+                    placeholder="Escribe detalles adicionales de la compra o gasto..."
                     value={formGasto.detalle}
                     onChange={(e) => setFormGasto({ ...formGasto, detalle: e.target.value })}
                     className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -1133,12 +1134,16 @@ export default function App() {
               </form>
             </div>
 
+            {/* TABLA DE GASTOS CON DESPLEGABLE DE DETALLES */}
             <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <h2 className="text-base font-bold text-slate-800 mb-4">Historial de Gastos y Salidas de Dinero</h2>
+              <h2 className="text-base font-bold text-slate-800 mb-2">Historial de Gastos y Salidas de Dinero</h2>
+              <p className="text-xs text-slate-500 mb-4">Haz clic sobre la fila o la flecha para desplegar las observaciones/detalles del gasto.</p>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse min-w-[500px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
+                      <th className="p-3 w-8"></th>
                       <th className="p-3">Fecha</th>
                       <th className="p-3">Concepto</th>
                       <th className="p-3">Tipo</th>
@@ -1149,29 +1154,58 @@ export default function App() {
                   <tbody>
                     {gastos.length === 0 ? (
                       <tr>
-                        <td colSpan="5" className="text-center p-4 text-slate-400">No se han registrado gastos aún.</td>
+                        <td colSpan="6" className="text-center p-4 text-slate-400">No se han registrado gastos aún.</td>
                       </tr>
                     ) : (
-                      gastos.map((g) => (
-                        <tr key={g.id} className="border-b border-slate-100 hover:bg-slate-50">
-                          <td className="p-3 text-slate-500 text-xs">{g.fecha}</td>
-                          <td className="p-3 font-medium text-slate-900">{g.concepto}</td>
-                          <td className="p-3">
-                            <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-medium border border-red-100">
-                              {g.tipo}
-                            </span>
-                          </td>
-                          <td className="p-3 font-bold text-red-600">-${g.monto.toLocaleString()}</td>
-                          <td className="p-3 text-center">
-                            <button 
-                              onClick={() => eliminarGasto(g.id)}
-                              className="text-red-500 hover:text-red-700 p-1 rounded"
+                      gastos.map((g) => {
+                        const estaExpandido = gastoExpandidoId === g.id;
+                        return (
+                          <React.Fragment key={g.id}>
+                            <tr 
+                              onClick={() => setGastoExpandidoId(estaExpandido ? null : g.id)}
+                              className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition"
                             >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                              <td className="p-3 text-slate-400">
+                                {estaExpandido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              </td>
+                              <td className="p-3 text-slate-500 text-xs">{g.fecha}</td>
+                              <td className="p-3 font-medium text-slate-900">{g.concepto}</td>
+                              <td className="p-3">
+                                <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-medium border border-red-100">
+                                  {g.tipo}
+                                </span>
+                              </td>
+                              <td className="p-3 font-bold text-red-600">-${g.monto.toLocaleString()}</td>
+                              <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                <button 
+                                  onClick={() => eliminarGasto(g.id)}
+                                  className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
+                                  title="Eliminar registro de gasto"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </td>
+                            </tr>
+
+                            {/* SUB-FILA DESPLEGABLE CON DETALLES/OBSERVACIONES */}
+                            {estaExpandido && (
+                              <tr className="bg-red-50/40 border-b border-red-100">
+                                <td colSpan="6" className="p-4">
+                                  <div className="bg-white p-3 rounded-lg border border-red-100 shadow-sm flex items-start gap-2 text-xs">
+                                    <FileText size={16} className="text-red-500 mt-0.5 shrink-0" />
+                                    <div>
+                                      <p className="font-bold text-slate-700 mb-0.5">Observaciones / Detalle del Gasto:</p>
+                                      <p className="text-slate-600 leading-relaxed whitespace-pre-line">
+                                        {g.detalle || 'Sin observaciones registradas.'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -1272,7 +1306,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* PREVISUALIZACIÓN DE GANANCIA EN VIVO */}
                   {formProducto.costo && formProducto.precio && (
                     <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between font-semibold">
                       <span className="flex items-center gap-1">
@@ -1412,7 +1445,7 @@ export default function App() {
                             </td>
                           </tr>
 
-                          {/* Sub-tabla desplegable con desglose de ganancia por lote */}
+                          {/* Sub-tabla desplegable de lotes */}
                           {estaExpandido && (
                             <tr className="bg-slate-50/90 border-b border-indigo-100">
                               <td colSpan="9" className="p-4">
