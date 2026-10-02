@@ -599,7 +599,7 @@ export default function App() {
     .filter(g => g.tipo === 'Proveedor' || g.tipo === 'Compra Productos')
     .reduce((acc, g) => acc + g.monto, 0);
 
-  // CORRECCIÓN APLICADA: Efectivo total en caja independiente sin restar gastos totales
+  // CORRECCIÓN SOLICITADA EN ESTADO DE CUENTA: Efectivo total limpio sin restar gastos totales
   const efectivoTotalEnCaja = cajaInicial + totalVentasEfectivoCobrado;
   const estadoPuntoCeroReposicion = totalReposicionDia - gastosEnReposiciones;
 
@@ -858,21 +858,24 @@ export default function App() {
                 </div>
               )}
 
-              <div className="flex items-center gap-2">
-                <input 
-                  type="checkbox" 
-                  id="pagadoCheck"
-                  checked={formVenta.pagado}
-                  onChange={(e) => setFormVenta({ ...formVenta, pagado: e.target.checked })}
-                  className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                />
-                <label htmlFor="pagadoCheck" className="text-xs font-semibold text-slate-700">¿Pagado al instante?</label>
+              {/* Selector original de Estado de Pago (Pagado / Pendiente) */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Estado de Pago</label>
+                <select
+                  value={formVenta.pagado ? 'true' : 'false'}
+                  onChange={(e) => setFormVenta({ ...formVenta, pagado: e.target.value === 'true' })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                >
+                  <option value="true">Pagado</option>
+                  <option value="false">Pendiente</option>
+                </select>
               </div>
 
+              {/* Botón original restaurado */}
               <div className="lg:col-span-6 flex justify-end">
                 <button 
                   type="submit"
-                  className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow"
+                  className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow w-full md:w-auto"
                 >
                   Registrar Venta
                 </button>
