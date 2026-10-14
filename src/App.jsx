@@ -11,7 +11,7 @@ import {
 import { 
   CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart
 } from 'lucide-react';
 
 export default function App({ usuario }) {
@@ -218,88 +218,176 @@ export default function App({ usuario }) {
     return await enviarMensajeTelegram(textoAlerta);
   };
 
-  // Guardar Venta
-  const handleAgregarVenta = async (e) => {
+  // ==================== CARRITO DE COMPRAS ====================
+  const [carrito, setCarrito] = useState([]);
+  const [guardandoVenta, setGuardandoVenta] = useState(false);
+
+  // Descuenta una cantidad de los lotes por FEFO (primero los que vencen antes).
+  // Devuelve los lotes resultantes y la cantidad que no se pudo cubrir.
+  const descontarFEFO = (lotes, variante, cantidad) => {
+    let restante = cantidad;
+    const copia = JSON.parse(JSON.stringify(lotes))
+      .sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+
+    for (const lote of copia) {
+      if (restante <= 0) break;
+      if (variante !== 'TODAS' && lote.variante.toLowerCase() !== variante.toLowerCase()) continue;
+      const usar = Math.min(lote.cantidad, restante);
+      lote.cantidad -= usar;
+      restante -= usar;
+    }
+
+    return { lotes: copia.filter(l => l.cantidad > 0), faltante: restante };
+  };
+
+  // Simula el descuento de todos los ítems del carrito sobre el inventario actual.
+  // Si un mismo producto aparece varias veces, los descuentos se acumulan.
+  // Primero se descuentan las variantes específicas y al final las "Automático (FEFO)",
+  // para que el automático no consuma lotes que otra línea pidió explícitamente.
+  const simularCarrito = (items) => {
+    const lotesPorProducto = {};
+    const ordenados = [...items].sort((a, b) => (a.variante === 'TODAS') - (b.variante === 'TODAS'));
+    for (const item of ordenados) {
+      const prod = productos.find(p => p.id === item.productoId);
+      if (!prod) return { error: `El producto "${item.nombre}" ya no existe en el inventario.` };
+
+      const lotesActuales = lotesPorProducto[prod.id] ?? obtenerLotesNorm(prod);
+      const { lotes, faltante } = descontarFEFO(lotesActuales, item.variante, item.cantidad);
+      if (faltante > 0) {
+        const disponible = item.cantidad - faltante;
+        return {
+          error: item.variante === 'TODAS'
+            ? `Stock insuficiente de "${prod.nombre}": solo quedan ${disponible} unidades disponibles para este pedido.`
+            : `Stock insuficiente de "${prod.nombre}" (${item.variante}): solo quedan ${disponible} unidades disponibles para este pedido.`
+        };
+      }
+      lotesPorProducto[prod.id] = lotes;
+    }
+    return { lotesPorProducto };
+  };
+
+  const handleAgregarAlCarrito = (e) => {
     e.preventDefault();
     const prod = productos.find(p => p.id === formVenta.productoId);
     if (!prod) return alert("Selecciona un producto válido.");
 
-    let cantidadARestar = Number(formVenta.cantidad);
-    const stockDisponible = getStockTotalProducto(prod);
+    const cantidad = Number(formVenta.cantidad);
+    if (!Number.isInteger(cantidad) || cantidad <= 0) return alert("La cantidad debe ser un número entero mayor a cero.");
 
-    if (stockDisponible <= 0) return alert(`❌ No se puede realizar la venta: "${prod.nombre}" está agotado.`);
-    if (cantidadARestar > stockDisponible) return alert(`❌ Stock insuficiente: Quedan ${stockDisponible} unidades.`);
+    const nuevoItem = {
+      key: `${prod.id}_${Date.now()}`,
+      productoId: prod.id,
+      nombre: prod.nombre,
+      variante: formVenta.variante,
+      cantidad,
+      precio: Number(prod.precio) || 0,
+      costo: Number(prod.costo) || 0
+    };
 
-    let lotesActualizados = JSON.parse(JSON.stringify(obtenerLotesNorm(prod)));
-    lotesActualizados.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+    // Si ya hay un ítem igual (mismo producto y variante), se suma la cantidad
+    const existente = carrito.find(i => i.productoId === prod.id && i.variante === formVenta.variante);
+    const carritoNuevo = existente
+      ? carrito.map(i => i === existente ? { ...i, cantidad: i.cantidad + cantidad } : i)
+      : [...carrito, nuevoItem];
 
-    for (let lote of lotesActualizados) {
-      if (cantidadARestar <= 0) break;
-      if (formVenta.variante !== 'TODAS' && lote.variante.toLowerCase() !== formVenta.variante.toLowerCase()) {
-        continue;
-      }
+    const { error } = simularCarrito(carritoNuevo);
+    if (error) return alert(`❌ ${error}`);
 
-      if (lote.cantidad >= cantidadARestar) {
-        lote.cantidad -= cantidadARestar;
-        cantidadARestar = 0;
-      } else {
-        cantidadARestar -= lote.cantidad;
-        lote.cantidad = 0;
-      }
+    setCarrito(carritoNuevo);
+    setFormVenta({ ...formVenta, productoId: '', variante: 'TODAS', cantidad: 1 });
+  };
+
+  const handleCambiarCantidadItem = (key, nuevaCantidad) => {
+    const cantidad = Number(nuevaCantidad);
+    if (!Number.isInteger(cantidad) || cantidad <= 0) return;
+    const carritoNuevo = carrito.map(i => i.key === key ? { ...i, cantidad } : i);
+    const { error } = simularCarrito(carritoNuevo);
+    if (error) return alert(`❌ ${error}`);
+    setCarrito(carritoNuevo);
+  };
+
+  const handleQuitarItem = (key) => {
+    setCarrito(carrito.filter(i => i.key !== key));
+  };
+
+  const handleVaciarCarrito = () => {
+    if (carrito.length > 0 && confirm("¿Vaciar el carrito?")) setCarrito([]);
+  };
+
+  const totalCarrito = carrito.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+  const unidadesCarrito = carrito.reduce((acc, i) => acc + i.cantidad, 0);
+
+  // Registra todo el carrito en una sola operación atómica (writeBatch):
+  // una venta por ítem + la actualización de lotes de cada producto.
+  const handleRegistrarVenta = async () => {
+    if (carrito.length === 0) return alert("El carrito está vacío.");
+    if (formVenta.medioPago === 'Otro' && !formVenta.otroMedioPago.trim()) {
+      return alert("Especifica el medio de pago.");
     }
 
-    if (cantidadARestar > 0 && formVenta.variante !== 'TODAS') {
-      return alert(`❌ No hay suficiente stock de la variante "${formVenta.variante}".`);
-    }
+    // Se vuelve a validar con el inventario actual por si otro socio vendió mientras tanto
+    const { error, lotesPorProducto } = simularCarrito(carrito);
+    if (error) return alert(`❌ ${error}`);
 
-    lotesActualizados = lotesActualizados.filter(l => l.cantidad > 0);
-
-    const cantidadComprada = Number(formVenta.cantidad);
-    const total = prod.precio * cantidadComprada;
-    const costoTotal = prod.costo * cantidadComprada;
-    const ganancia = total - costoTotal;
-
-    const medioPagoFinal = formVenta.medioPago === 'Otro' 
-      ? (formVenta.otroMedioPago.trim() || 'Otro') 
+    const medioPagoFinal = formVenta.medioPago === 'Otro'
+      ? formVenta.otroMedioPago.trim()
       : formVenta.medioPago;
+    const cliente = formVenta.cliente.trim() || 'Cliente General';
+    const fecha = new Date().toISOString().split('T')[0];
+    const creadoEn = Date.now();
+    const pedidoId = doc(collection(db, 'ventas')).id;
 
-    const nuevoStockTotal = lotesActualizados.reduce((acc, l) => acc + l.cantidad, 0);
-
+    setGuardandoVenta(true);
     try {
-      // Venta y descuento de inventario en una sola operación atómica
       const batch = writeBatch(db);
-      batch.set(doc(collection(db, 'ventas')), {
-        fecha: new Date().toISOString().split('T')[0],
-        cliente: formVenta.cliente || 'Cliente General',
-        producto: prod.nombre,
-        variante: formVenta.variante === 'TODAS' ? 'Auto (FEFO)' : formVenta.variante,
-        cantidad: cantidadComprada,
-        total,
-        costoTotal,
-        ganancia,
-        pagado: formVenta.pagado,
-        medioPago: medioPagoFinal,
-        creadoEn: Date.now()
+
+      carrito.forEach(item => {
+        const total = item.precio * item.cantidad;
+        const costoTotal = item.costo * item.cantidad;
+        batch.set(doc(collection(db, 'ventas')), {
+          fecha,
+          cliente,
+          producto: item.nombre,
+          variante: item.variante === 'TODAS' ? 'Auto (FEFO)' : item.variante,
+          cantidad: item.cantidad,
+          total,
+          costoTotal,
+          ganancia: total - costoTotal,
+          pagado: formVenta.pagado,
+          medioPago: medioPagoFinal,
+          pedidoId,
+          creadoEn
+        });
       });
-      batch.update(doc(db, 'productos', prod.id), {
-        lotes: lotesActualizados,
-        stock: nuevoStockTotal
+
+      const stockFinal = {};
+      Object.entries(lotesPorProducto).forEach(([prodId, lotes]) => {
+        const stock = lotes.reduce((acc, l) => acc + l.cantidad, 0);
+        stockFinal[prodId] = stock;
+        batch.update(doc(db, 'productos', prodId), { lotes, stock });
       });
+
       await batch.commit();
 
-      if (nuevoStockTotal <= 3) {
-        const estadoTexto = nuevoStockTotal === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${nuevoStockTotal} UNIDADES</b>`;
+      // Alertas de reposición para los productos que quedaron con poco stock
+      Object.entries(stockFinal).forEach(([prodId, stock]) => {
+        if (stock > 3) return;
+        const prod = productos.find(p => p.id === prodId);
+        const estadoTexto = stock === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${stock} UNIDADES</b>`;
         enviarMensajeTelegram(
           `🚨 <b>ALERTA DE REPOSICIÓN DE INVENTARIO</b> 🚨\n\n` +
-          `📦 Producto: <b>${prod.nombre}</b>\n` +
+          `📦 Producto: <b>${prod?.nombre || prodId}</b>\n` +
           `📊 Estado: ${estadoTexto}\n` +
           `🔔 <i>Por favor coordinar compra con proveedores.</i>`
         );
-      }
+      });
 
+      setCarrito([]);
       setFormVenta({ cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: '' });
     } catch (error) {
       alert("Error al registrar la venta: " + error.message);
+    } finally {
+      setGuardandoVenta(false);
     }
   };
 
@@ -810,33 +898,25 @@ export default function App({ usuario }) {
             <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
               <PlusCircle size={20} className="text-indigo-600" /> Registrar Nueva Venta / Regalo
             </h2>
-            <form onSubmit={handleAgregarVenta} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Cliente</label>
-                <input 
-                  type="text" 
-                  placeholder="Ej. Juan Pérez"
-                  value={formVenta.cliente}
-                  onChange={(e) => setFormVenta({ ...formVenta, cliente: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
 
+            {/* Paso 1: agregar productos al carrito */}
+            <form onSubmit={handleAgregarAlCarrito} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Producto</label>
-                <select 
+                <select
                   required
                   value={formVenta.productoId}
-                  onChange={(e) => setFormVenta({ ...formVenta, productoId: e.target.value })}
+                  onChange={(e) => setFormVenta({ ...formVenta, productoId: e.target.value, variante: 'TODAS' })}
                   className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                 >
                   <option value="">Seleccionar Producto...</option>
                   {productos.map((p) => {
-                    const st = getStockTotalProducto(p);
+                    const enCarrito = carrito.filter(i => i.productoId === p.id).reduce((acc, i) => acc + i.cantidad, 0);
+                    const st = getStockTotalProducto(p) - enCarrito;
                     return (
                       <option key={p.id} value={p.id} disabled={st <= 0}>
                         {p.precio === 0 ? '🎁 [REGALO] ' : ''}
-                        {p.nombre} — ${p.precio} (Stock: {st})
+                        {p.nombre} — ${p.precio} (Disponible: {st})
                       </option>
                     );
                   })}
@@ -865,12 +945,93 @@ export default function App({ usuario }) {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   min="1"
+                  step="1"
                   required
                   value={formVenta.cantidad}
                   onChange={(e) => setFormVenta({ ...formVenta, cantidad: Number(e.target.value) })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="flex items-center justify-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-slate-900 transition shadow"
+              >
+                <ShoppingCart size={16} /> Agregar al Carrito
+              </button>
+            </form>
+
+            {/* Paso 2: revisar el carrito */}
+            <div className="mt-5 border border-slate-200 rounded-xl overflow-hidden">
+              <div className="flex justify-between items-center px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+                <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                  <ShoppingCart size={16} className="text-indigo-600" />
+                  Carrito ({carrito.length} {carrito.length === 1 ? 'producto' : 'productos'}, {unidadesCarrito} un.)
+                </h3>
+                {carrito.length > 0 && (
+                  <button onClick={handleVaciarCarrito} className="text-xs font-semibold text-rose-600 hover:text-rose-700">
+                    Vaciar
+                  </button>
+                )}
+              </div>
+
+              {carrito.length === 0 ? (
+                <p className="p-4 text-center text-sm text-slate-400">Agrega productos para armar la venta.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs md:text-sm">
+                    <thead>
+                      <tr className="text-slate-500 border-b border-slate-200">
+                        <th className="p-3">Producto</th>
+                        <th className="p-3">Variante</th>
+                        <th className="p-3">Precio</th>
+                        <th className="p-3">Cantidad</th>
+                        <th className="p-3">Subtotal</th>
+                        <th className="p-3 text-right"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {carrito.map(item => (
+                        <tr key={item.key}>
+                          <td className="p-3 font-semibold text-slate-800">{item.nombre}</td>
+                          <td className="p-3 text-slate-500">{item.variante === 'TODAS' ? 'Automático (FEFO)' : item.variante}</td>
+                          <td className="p-3">${item.precio.toLocaleString()}</td>
+                          <td className="p-3">
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={item.cantidad}
+                              onChange={(e) => handleCambiarCantidadItem(item.key, e.target.value)}
+                              className="w-20 p-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          </td>
+                          <td className="p-3 font-bold text-slate-900">${(item.precio * item.cantidad).toLocaleString()}</td>
+                          <td className="p-3 text-right">
+                            <button onClick={() => handleQuitarItem(item.key)} className="text-rose-500 hover:text-rose-700 p-1" title="Quitar del carrito">
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Paso 3: datos del cliente y pago, y confirmar */}
+            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Cliente</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Juan Pérez"
+                  value={formVenta.cliente}
+                  onChange={(e) => setFormVenta({ ...formVenta, cliente: e.target.value })}
                   className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
               </div>
@@ -894,7 +1055,7 @@ export default function App({ usuario }) {
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Especificar Medio</label>
                   <input
                     type="text"
-                    placeholder="Ej. Cripto, Fiado..."
+                    placeholder="Ej. Nequi, Daviplata..."
                     value={formVenta.otroMedioPago}
                     onChange={(e) => setFormVenta({ ...formVenta, otroMedioPago: e.target.value })}
                     className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -902,7 +1063,6 @@ export default function App({ usuario }) {
                 </div>
               )}
 
-              {/* Selector original de Estado de Pago (Pagado / Pendiente) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Estado de Pago</label>
                 <select
@@ -915,16 +1075,20 @@ export default function App({ usuario }) {
                 </select>
               </div>
 
-              {/* Botón original restaurado */}
-              <div className="lg:col-span-6 flex justify-end">
-                <button 
-                  type="submit"
-                  className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow w-full md:w-auto"
+              <div className={`flex flex-col gap-2 ${formVenta.medioPago === 'Otro' ? '' : 'lg:col-span-2'}`}>
+                <p className="text-right text-sm text-slate-600">
+                  Total: <span className="text-xl font-extrabold text-slate-900">${totalCarrito.toLocaleString()}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={handleRegistrarVenta}
+                  disabled={carrito.length === 0 || guardandoVenta}
+                  className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Registrar Venta
+                  {guardandoVenta ? 'Registrando...' : 'Registrar Venta'}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
