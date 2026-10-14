@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// Solo los administradores pueden leer o escribir datos.
+// Un usuario es administrador si existe el documento admins/{su UID}.
+// Los documentos de "admins" se crean a mano desde la consola de Firebase
+// (la consola no pasa por estas reglas), nunca desde la app.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function esAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Lista de administradores: nadie la puede modificar desde la app
+    match /admins/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Todo lo demás (productos, ventas, categorias, gastos, caja_base, config...)
+    // (se excluye "admins" porque las reglas que coinciden se suman con OR)
+    match /{coleccion}/{documento=**} {
+      allow read, write: if esAdmin() && coleccion != 'admins';
+    }
+  }
+}

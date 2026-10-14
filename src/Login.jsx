@@ -1,0 +1,104 @@
+import React, { useState } from 'react';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from './firebase';
+import { Lock, LogIn } from 'lucide-react';
+
+const mensajesError = {
+  'auth/invalid-credential': 'Correo o contraseña incorrectos.',
+  'auth/invalid-email': 'El correo no es válido.',
+  'auth/user-disabled': 'Esta cuenta está deshabilitada.',
+  'auth/too-many-requests': 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.',
+  'auth/network-request-failed': 'Sin conexión a internet.'
+};
+
+export default function Login() {
+  const [correo, setCorreo] = useState('');
+  const [clave, setClave] = useState('');
+  const [error, setError] = useState('');
+  const [aviso, setAviso] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
+  const handleIngresar = async (e) => {
+    e.preventDefault();
+    setError('');
+    setAviso('');
+    setEnviando(true);
+    try {
+      await signInWithEmailAndPassword(auth, correo.trim(), clave);
+    } catch (err) {
+      setError(mensajesError[err.code] || 'No se pudo iniciar sesión: ' + err.message);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const handleOlvideClave = async () => {
+    setError('');
+    setAviso('');
+    if (!correo.trim()) return setError('Escribe tu correo para enviarte el enlace de recuperación.');
+    try {
+      await sendPasswordResetEmail(auth, correo.trim());
+      setAviso('Si el correo está registrado, te llegará un enlace para cambiar la contraseña.');
+    } catch (err) {
+      setError(mensajesError[err.code] || 'No se pudo enviar el correo: ' + err.message);
+    }
+  };
+
+  return (
+    <div className="flex justify-center items-center min-h-screen bg-slate-50 text-slate-800 font-sans p-4">
+      <div className="w-full max-w-sm bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col items-center mb-6">
+          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl mb-3">
+            <Lock size={24} />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">Sistema de Control Financiero y Ventas</h1>
+          <p className="text-xs text-slate-500 mt-1">Acceso exclusivo para administradores</p>
+        </div>
+
+        <form onSubmit={handleIngresar} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Correo</label>
+            <input
+              type="email"
+              required
+              autoComplete="username"
+              value={correo}
+              onChange={(e) => setCorreo(e.target.value)}
+              className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña</label>
+            <input
+              type="password"
+              required
+              autoComplete="current-password"
+              value={clave}
+              onChange={(e) => setClave(e.target.value)}
+              className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+            />
+          </div>
+
+          {error && <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</p>}
+          {aviso && <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2">{aviso}</p>}
+
+          <button
+            type="submit"
+            disabled={enviando}
+            className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow disabled:opacity-60"
+          >
+            <LogIn size={16} /> {enviando ? 'Ingresando...' : 'Ingresar'}
+          </button>
+        </form>
+
+        <button
+          type="button"
+          onClick={handleOlvideClave}
+          className="w-full text-center text-xs text-slate-500 hover:text-indigo-600 mt-4"
+        >
+          ¿Olvidaste tu contraseña?
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -1,25 +1,49 @@
-const TELEGRAM_BOT_TOKEN = '8948898576:AAFtq3k9kRIwz1SwG_Wlwl1Ss4c2MFX9hgU';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from './firebase';
 
-// Lista con los Chat IDs de los 3 socios
-const CHAT_IDS_SOCIOS = [
-  '1283673615',
-  '786677703',
-  '429181093'
-];
+// El token y los Chat IDs de los socios NO van en el código: se guardan en
+// Firestore en el documento config/telegram, que solo pueden leer los
+// administradores con sesión iniciada (ver firestore.rules).
+//   config/telegram = { token: "123:ABC...", chatIds: ["111", "222", "333"] }
+let configCache = null;
+
+const obtenerConfigTelegram = async () => {
+  if (configCache) return configCache;
+
+  try {
+    const snap = await getDoc(doc(db, 'config', 'telegram'));
+    if (!snap.exists()) {
+      console.error("Falta crear el documento config/telegram en Firestore.");
+      return null;
+    }
+    const { token, chatIds } = snap.data();
+    if (!token || !Array.isArray(chatIds)) {
+      console.error("El documento config/telegram debe tener 'token' y 'chatIds'.");
+      return null;
+    }
+    configCache = { token, chatIds };
+    return configCache;
+  } catch (error) {
+    console.error("No se pudo leer la configuración de Telegram:", error);
+    return null;
+  }
+};
+
+export const limpiarConfigTelegram = () => {
+  configCache = null;
+};
 
 export const enviarMensajeTelegram = async (mensajeTexto) => {
-  if (!TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN.includes('AQUÍ_TU_TOKEN')) {
-    console.error("Falta configurar el Token de Telegram.");
-    return false;
-  }
+  const config = await obtenerConfigTelegram();
+  if (!config) return false;
 
   let exitoGlobal = true;
 
-  for (const chatId of CHAT_IDS_SOCIOS) {
-    if (!chatId || chatId.includes('AQUÍ_CHAT_ID')) continue;
+  for (const chatId of config.chatIds) {
+    if (!chatId) continue;
 
     try {
-      const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+      const url = `https://api.telegram.org/bot${config.token}/sendMessage`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -48,10 +72,11 @@ export const enviarMensajeTelegram = async (mensajeTexto) => {
 let ultimoUpdateId = 0;
 
 export const obtenerUltimosMensajesTelegram = async () => {
-  if (!TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN.includes('AQUÍ_TU_TOKEN')) return [];
+  const config = await obtenerConfigTelegram();
+  if (!config) return [];
 
   try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${ultimoUpdateId + 1}`;
+    const url = `https://api.telegram.org/bot${config.token}/getUpdates?offset=${ultimoUpdateId + 1}`;
     const response = await fetch(url);
     const data = await response.json();
 

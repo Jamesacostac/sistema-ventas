@@ -2,18 +2,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, writeBatch 
 } from 'firebase/firestore';
-import { db } from './firebase';
-import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegram';
+import { signOut } from 'firebase/auth';
+import { db, auth } from './firebase';
+import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram, limpiarConfigTelegram } from './telegram';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line 
 } from 'recharts';
 import { 
   CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut
 } from 'lucide-react';
 
-export default function App() {
+export default function App({ usuario }) {
   const [pestana, setPestana] = useState('ventas');
   const [productos, setProductos] = useState([]);
   const [ventas, setVentas] = useState([]);
@@ -22,6 +23,7 @@ export default function App() {
   const [cajaInicial, setCajaInicial] = useState(0);
   const [cajaDocId, setCajaDocId] = useState(null);
   const [cargando, setCargando] = useState(true);
+  const [errorAcceso, setErrorAcceso] = useState(null);
 
   // Estados desplegables y edición
   const [productoExpandidoId, setProductoExpandidoId] = useState(null);
@@ -69,24 +71,33 @@ export default function App() {
 
   // Escuchar Firestore en tiempo real
   useEffect(() => {
+    // Si las reglas de Firestore rechazan al usuario (no es administrador), se muestra un aviso
+    const manejarError = (error) => {
+      console.error("Error de Firestore:", error);
+      setErrorAcceso(error.code === 'permission-denied'
+        ? 'Tu cuenta no tiene permisos de administrador para ver estos datos.'
+        : 'No se pudieron cargar los datos: ' + error.message);
+      setCargando(false);
+    };
+
     const unsubProductos = onSnapshot(collection(db, 'productos'), (snapshot) => {
       setProductos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    }, manejarError);
 
     const unsubVentas = onSnapshot(collection(db, 'ventas'), (snapshot) => {
       const lista = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setVentas(lista.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
       setCargando(false);
-    });
+    }, manejarError);
 
     const unsubCategorias = onSnapshot(collection(db, 'categorias'), (snapshot) => {
       setCategorias(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    }, manejarError);
 
     const unsubGastos = onSnapshot(collection(db, 'gastos'), (snapshot) => {
       const listaG = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setGastos(listaG.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
-    });
+    }, manejarError);
 
     const unsubCaja = onSnapshot(collection(db, 'caja_base'), (snapshot) => {
       if (!snapshot.empty) {
@@ -97,7 +108,7 @@ export default function App() {
         setCajaInicial(0);
         setCajaDocId(null);
       }
-    });
+    }, manejarError);
 
     return () => {
       unsubProductos();
@@ -252,8 +263,12 @@ export default function App() {
       ? (formVenta.otroMedioPago.trim() || 'Otro') 
       : formVenta.medioPago;
 
+    const nuevoStockTotal = lotesActualizados.reduce((acc, l) => acc + l.cantidad, 0);
+
     try {
-      await addDoc(collection(db, 'ventas'), {
+      // Venta y descuento de inventario en una sola operación atómica
+      const batch = writeBatch(db);
+      batch.set(doc(collection(db, 'ventas')), {
         fecha: new Date().toISOString().split('T')[0],
         cliente: formVenta.cliente || 'Cliente General',
         producto: prod.nombre,
@@ -266,12 +281,11 @@ export default function App() {
         medioPago: medioPagoFinal,
         creadoEn: Date.now()
       });
-
-      const nuevoStockTotal = lotesActualizados.reduce((acc, l) => acc + l.cantidad, 0);
-      await updateDoc(doc(db, 'productos', prod.id), { 
+      batch.update(doc(db, 'productos', prod.id), {
         lotes: lotesActualizados,
-        stock: nuevoStockTotal 
+        stock: nuevoStockTotal
       });
+      await batch.commit();
 
       if (nuevoStockTotal <= 3) {
         const estadoTexto = nuevoStockTotal === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${nuevoStockTotal} UNIDADES</b>`;
@@ -647,10 +661,33 @@ export default function App() {
     })).sort((a, b) => b.unidades - a.unidades);
   })();
 
+  const handleCerrarSesion = async () => {
+    limpiarConfigTelegram();
+    await signOut(auth);
+  };
+
   if (cargando) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-slate-50 text-slate-600 font-sans">
         <p className="font-semibold text-lg">Cargando datos desde la nube...</p>
+      </div>
+    );
+  }
+
+  if (errorAcceso) {
+    return (
+      <div className="flex justify-center items-center min-h-screen bg-slate-50 text-slate-800 font-sans p-4">
+        <div className="w-full max-w-sm bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+          <AlertTriangle size={32} className="mx-auto text-amber-500 mb-3" />
+          <p className="text-sm font-semibold mb-1">{errorAcceso}</p>
+          <p className="text-xs text-slate-500 mb-4">Sesión: {usuario?.email}</p>
+          <button
+            onClick={handleCerrarSesion}
+            className="inline-flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-900 transition"
+          >
+            <LogOut size={16} /> Cerrar sesión
+          </button>
+        </div>
       </div>
     );
   }
@@ -736,6 +773,13 @@ export default function App() {
             className="flex items-center gap-1.5 bg-sky-600 text-white px-3 py-2 rounded-lg hover:bg-sky-700 transition shadow text-xs md:text-sm font-semibold"
           >
             <Send size={16} /> Enviar Cierre
+          </button>
+          <button
+            onClick={handleCerrarSesion}
+            className="flex items-center gap-1.5 bg-slate-800 text-white px-3 py-2 rounded-lg hover:bg-slate-900 transition shadow text-xs md:text-sm font-semibold"
+            title={`Sesión iniciada como ${usuario?.email || ''}`}
+          >
+            <LogOut size={16} /> Salir
           </button>
         </div>
       </header>
