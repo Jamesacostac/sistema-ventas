@@ -11,7 +11,7 @@ import {
 import { 
   CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart, Users, HandCoins, UserPlus, Phone
 } from 'lucide-react';
 
 export default function App({ usuario }) {
@@ -20,6 +20,7 @@ export default function App({ usuario }) {
   const [ventas, setVentas] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [gastos, setGastos] = useState([]);
+  const [clientes, setClientes] = useState([]);
   const [cajaInicial, setCajaInicial] = useState(0);
   const [cajaDocId, setCajaDocId] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -99,6 +100,11 @@ export default function App({ usuario }) {
       setGastos(listaG.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
     }, manejarError);
 
+    const unsubClientes = onSnapshot(collection(db, 'clientes'), (snapshot) => {
+      const listaC = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setClientes(listaC.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es')));
+    }, manejarError);
+
     const unsubCaja = onSnapshot(collection(db, 'caja_base'), (snapshot) => {
       if (!snapshot.empty) {
         const docCaja = snapshot.docs[0];
@@ -115,6 +121,7 @@ export default function App({ usuario }) {
       unsubVentas();
       unsubCategorias();
       unsubGastos();
+      unsubClientes();
       unsubCaja();
     };
   }, []);
@@ -183,7 +190,8 @@ export default function App({ usuario }) {
       `🔄 <b>Fondo Reposición:</b> $${totalReposicion.toLocaleString()}\n` +
       `🌱 <b>Fondo Ahorro (15%):</b> $${ahorro.toLocaleString()}\n` +
       `👥 <b>Pago por Socio (3):</b> $${pagoSocio.toLocaleString(undefined, {maximumFractionDigits: 0})}\n\n` +
-      `🛒 Total ventas registradas: ${ventasPagadas.length}`;
+      `🛒 Total ventas registradas: ${ventasPagadas.length}\n` +
+      `🧾 <b>Por cobrar (fiados):</b> $${(listaVentas || ventas).filter(v => !v.pagado).reduce((acc, v) => acc + v.total, 0).toLocaleString()}`;
 
     return await enviarMensajeTelegram(reporteTexto);
   };
@@ -216,6 +224,187 @@ export default function App({ usuario }) {
     textoAlerta += `🛒 <i>Por favor realizar pedido de compras.</i>`;
 
     return await enviarMensajeTelegram(textoAlerta);
+  };
+
+  // ==================== CLIENTES Y FIADOS ====================
+  const [formCliente, setFormCliente] = useState({ nombre: '', telefono: '', nota: '' });
+  const [editandoClienteId, setEditandoClienteId] = useState(null);
+  const [cuentaExpandida, setCuentaExpandida] = useState(null);
+  const [medioPagoAbono, setMedioPagoAbono] = useState('Efectivo');
+  const [busquedaCliente, setBusquedaCliente] = useState('');
+  const [procesandoCuenta, setProcesandoCuenta] = useState(false);
+
+  const normalizarNombre = (nombre) => (nombre || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+  const buscarClientePorNombre = (nombre) => {
+    const n = normalizarNombre(nombre);
+    if (!n) return null;
+    return clientes.find(c => normalizarNombre(c.nombre) === n) || null;
+  };
+
+  // Cliente al que pertenece una venta: por clienteId o, en ventas antiguas, por nombre
+  const clienteDeVenta = (v) =>
+    (v.clienteId && clientes.find(c => c.id === v.clienteId)) || buscarClientePorNombre(v.cliente);
+
+  // Firestore permite máximo 500 operaciones por lote: se divide en bloques
+  const actualizarEnLotes = async (operaciones) => {
+    for (let i = 0; i < operaciones.length; i += 450) {
+      const batch = writeBatch(db);
+      operaciones.slice(i, i + 450).forEach(({ ref, datos }) => batch.update(ref, datos));
+      await batch.commit();
+    }
+  };
+
+  const ventasPendientes = ventas.filter(v => !v.pagado);
+  const totalPorCobrar = ventasPendientes.reduce((acc, v) => acc + v.total, 0);
+
+  const resumirPendientes = (pendientes) => ({
+    pendientes,
+    deuda: pendientes.reduce((acc, v) => acc + v.total, 0),
+    ultimaFecha: pendientes.map(v => v.fecha).filter(Boolean).sort().pop() || null
+  });
+
+  // Cuentas de clientes registrados
+  const cuentasClientes = clientes.map(c => ({
+    key: `id:${c.id}`,
+    cliente: c,
+    nombre: c.nombre,
+    ...resumirPendientes(ventasPendientes.filter(v => clienteDeVenta(v)?.id === c.id))
+  }));
+
+  // Fiados antiguos cuyo cliente todavía no está registrado (se agrupan por nombre)
+  const deudoresSinRegistro = Object.values(
+    ventasPendientes
+      .filter(v => !clienteDeVenta(v))
+      .reduce((grupos, v) => {
+        const key = `nombre:${normalizarNombre(v.cliente) || 'sin nombre'}`;
+        grupos[key] = grupos[key] || { key, cliente: null, nombre: v.cliente || 'Sin nombre', ventas: [] };
+        grupos[key].ventas.push(v);
+        return grupos;
+      }, {})
+  ).map(g => ({ key: g.key, cliente: g.cliente, nombre: g.nombre, ...resumirPendientes(g.ventas) }));
+
+  const cuentasVisibles = [...deudoresSinRegistro, ...cuentasClientes]
+    .filter(c => normalizarNombre(c.nombre).includes(normalizarNombre(busquedaCliente)))
+    .sort((a, b) => b.deuda - a.deuda || a.nombre.localeCompare(b.nombre, 'es'));
+
+  const clientesConDeuda = [...cuentasClientes, ...deudoresSinRegistro].filter(c => c.deuda > 0).length;
+
+  const cancelarEdicionCliente = () => {
+    setEditandoClienteId(null);
+    setFormCliente({ nombre: '', telefono: '', nota: '' });
+  };
+
+  const handleGuardarCliente = async (e) => {
+    e.preventDefault();
+    const nombre = formCliente.nombre.trim().replace(/\s+/g, ' ');
+    if (!nombre) return alert("Escribe el nombre del cliente.");
+
+    const duplicado = buscarClientePorNombre(nombre);
+    if (duplicado && duplicado.id !== editandoClienteId) {
+      return alert(`Ya existe un cliente llamado "${duplicado.nombre}".`);
+    }
+
+    const datos = { nombre, telefono: formCliente.telefono.trim(), nota: formCliente.nota.trim() };
+
+    try {
+      if (editandoClienteId) {
+        const anterior = clientes.find(c => c.id === editandoClienteId);
+        await updateDoc(doc(db, 'clientes', editandoClienteId), datos);
+
+        // Si cambió el nombre, se actualiza también en sus ventas para que el historial coincida
+        if (anterior && anterior.nombre !== nombre) {
+          const operaciones = ventas
+            .filter(v => clienteDeVenta(v)?.id === editandoClienteId)
+            .map(v => ({ ref: doc(db, 'ventas', v.id), datos: { cliente: nombre, clienteId: editandoClienteId } }));
+          await actualizarEnLotes(operaciones);
+        }
+      } else {
+        await addDoc(collection(db, 'clientes'), { ...datos, creadoEn: Date.now() });
+      }
+      cancelarEdicionCliente();
+    } catch (error) {
+      alert("Error al guardar el cliente: " + error.message);
+    }
+  };
+
+  const iniciarEdicionCliente = (c) => {
+    setEditandoClienteId(c.id);
+    setFormCliente({ nombre: c.nombre || '', telefono: c.telefono || '', nota: c.nota || '' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const eliminarCliente = async (cuenta) => {
+    if (cuenta.deuda > 0) {
+      return alert(`No se puede eliminar a "${cuenta.nombre}" porque tiene una deuda pendiente de $${cuenta.deuda.toLocaleString()}.`);
+    }
+    if (!confirm(`¿Eliminar al cliente "${cuenta.nombre}"? Sus ventas pasadas se conservan en el historial.`)) return;
+    try {
+      await deleteDoc(doc(db, 'clientes', cuenta.cliente.id));
+    } catch (error) {
+      alert("Error al eliminar el cliente: " + error.message);
+    }
+  };
+
+  // Registra como cliente a alguien que tenía fiados antiguos sin registro
+  const registrarDeudor = async (cuenta) => {
+    setProcesandoCuenta(true);
+    try {
+      const batch = writeBatch(db);
+      const refCliente = doc(collection(db, 'clientes'));
+      const nombre = cuenta.nombre.trim().replace(/\s+/g, ' ');
+      batch.set(refCliente, { nombre, telefono: '', nota: '', creadoEn: Date.now() });
+      cuenta.pendientes.slice(0, 450).forEach(v => {
+        batch.update(doc(db, 'ventas', v.id), { clienteId: refCliente.id, cliente: nombre });
+      });
+      await batch.commit();
+    } catch (error) {
+      alert("Error al registrar el cliente: " + error.message);
+    } finally {
+      setProcesandoCuenta(false);
+    }
+  };
+
+  // Marca como pagadas las ventas indicadas, con el medio con que se pagó la deuda
+  const saldarVentas = async (ventasASaldar, medioPago) => {
+    const operaciones = ventasASaldar.map(v => ({
+      ref: doc(db, 'ventas', v.id),
+      datos: { pagado: true, medioPago, fechaPago: new Date().toISOString().split('T')[0] }
+    }));
+    await actualizarEnLotes(operaciones);
+  };
+
+  const handleSaldarTodo = async (cuenta) => {
+    if (cuenta.pendientes.length === 0) return;
+    if (!confirm(`¿Registrar el pago de TODA la deuda de "${cuenta.nombre}"?\n\n${cuenta.pendientes.length} venta(s) por $${cuenta.deuda.toLocaleString()} pagadas con ${medioPagoAbono}.`)) return;
+
+    setProcesandoCuenta(true);
+    try {
+      await saldarVentas(cuenta.pendientes, medioPagoAbono);
+      enviarMensajeTelegram(
+        `💵 <b>DEUDA SALDADA</b>\n\n` +
+        `👤 Cliente: <b>${cuenta.nombre}</b>\n` +
+        `💰 Monto: $${cuenta.deuda.toLocaleString()} (${medioPagoAbono})\n` +
+        `🧾 Ventas saldadas: ${cuenta.pendientes.length}`
+      );
+      setCuentaExpandida(null);
+    } catch (error) {
+      alert("Error al saldar la deuda: " + error.message);
+    } finally {
+      setProcesandoCuenta(false);
+    }
+  };
+
+  const handlePagarVenta = async (venta) => {
+    if (!confirm(`¿Marcar como pagada la venta de ${venta.producto} por $${venta.total.toLocaleString()} (${medioPagoAbono})?`)) return;
+    setProcesandoCuenta(true);
+    try {
+      await saldarVentas([venta], medioPagoAbono);
+    } catch (error) {
+      alert("Error al registrar el pago: " + error.message);
+    } finally {
+      setProcesandoCuenta(false);
+    }
   };
 
   // ==================== CARRITO DE COMPRAS ====================
@@ -329,10 +518,14 @@ export default function App({ usuario }) {
     const { error, lotesPorProducto } = simularCarrito(carrito);
     if (error) return alert(`❌ ${error}`);
 
+    const nombreCliente = formVenta.cliente.trim();
+    if (!formVenta.pagado && (!nombreCliente || normalizarNombre(nombreCliente) === normalizarNombre('Cliente General'))) {
+      return alert("Para dejar una venta como Pendiente (fiado) escribe el nombre del cliente.");
+    }
+
     const medioPagoFinal = formVenta.medioPago === 'Otro'
       ? formVenta.otroMedioPago.trim()
       : formVenta.medioPago;
-    const cliente = formVenta.cliente.trim() || 'Cliente General';
     const fecha = new Date().toISOString().split('T')[0];
     const creadoEn = Date.now();
     const pedidoId = doc(collection(db, 'ventas')).id;
@@ -341,12 +534,24 @@ export default function App({ usuario }) {
     try {
       const batch = writeBatch(db);
 
+      // Vincular la venta con el cliente registrado. Si es un fiado de un cliente
+      // nuevo, se registra el cliente en la misma operación.
+      let clienteRegistrado = buscarClientePorNombre(nombreCliente);
+      if (!clienteRegistrado && !formVenta.pagado) {
+        const refCliente = doc(collection(db, 'clientes'));
+        clienteRegistrado = { id: refCliente.id, nombre: nombreCliente };
+        batch.set(refCliente, { nombre: nombreCliente, telefono: '', nota: '', creadoEn });
+      }
+      const cliente = clienteRegistrado?.nombre || nombreCliente || 'Cliente General';
+      const clienteId = clienteRegistrado?.id || null;
+
       carrito.forEach(item => {
         const total = item.precio * item.cantidad;
         const costoTotal = item.costo * item.cantidad;
         batch.set(doc(collection(db, 'ventas')), {
           fecha,
           cliente,
+          clienteId,
           producto: item.nombre,
           variante: item.variante === 'TODAS' ? 'Auto (FEFO)' : item.variante,
           cantidad: item.cantidad,
@@ -813,7 +1018,20 @@ export default function App({ usuario }) {
           >
             <ShoppingBag size={16} /> Ventas & Cierre
           </button>
-          <button 
+          <button
+            onClick={() => setPestana('clientes')}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
+              pestana === 'clientes' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Users size={16} /> Clientes
+            {clientesConDeuda > 0 && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${pestana === 'clientes' ? 'bg-white text-indigo-700' : 'bg-amber-500 text-white'}`}>
+                {clientesConDeuda}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setPestana('estado_cuenta')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
               pestana === 'estado_cuenta' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
@@ -1029,11 +1247,29 @@ export default function App({ usuario }) {
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Cliente</label>
                 <input
                   type="text"
-                  placeholder="Ej. Juan Pérez"
+                  list="lista-clientes"
+                  placeholder={formVenta.pagado ? 'Ej. Juan Pérez (opcional)' : 'Obligatorio para fiar'}
                   value={formVenta.cliente}
                   onChange={(e) => setFormVenta({ ...formVenta, cliente: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className={`w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none ${
+                    !formVenta.pagado && !formVenta.cliente.trim() ? 'border-amber-400 bg-amber-50/50' : 'border-slate-300'
+                  }`}
                 />
+                <datalist id="lista-clientes">
+                  {clientes.map(c => <option key={c.id} value={c.nombre} />)}
+                </datalist>
+                {(() => {
+                  const c = buscarClientePorNombre(formVenta.cliente);
+                  if (!c) {
+                    return !formVenta.pagado && formVenta.cliente.trim()
+                      ? <p className="text-[11px] text-indigo-600 mt-1">Cliente nuevo: se registrará al guardar.</p>
+                      : null;
+                  }
+                  const deuda = cuentasClientes.find(cc => cc.cliente.id === c.id)?.deuda || 0;
+                  return deuda > 0
+                    ? <p className="text-[11px] text-amber-700 mt-1">Debe actualmente ${deuda.toLocaleString()}</p>
+                    : <p className="text-[11px] text-emerald-700 mt-1">Cliente registrado, sin deudas.</p>;
+                })()}
               </div>
 
               <div>
@@ -1161,10 +1397,253 @@ export default function App({ usuario }) {
         </>
       )}
 
+      {/* ==================== PESTAÑA CLIENTES Y FIADOS ==================== */}
+      {pestana === 'clientes' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Total por Cobrar</h3>
+              <p className="text-3xl font-extrabold text-amber-600 mt-1">${totalPorCobrar.toLocaleString()}</p>
+              <p className="text-xs text-slate-500 mt-1">{ventasPendientes.length} venta(s) pendiente(s)</p>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Clientes con Deuda</h3>
+              <p className="text-3xl font-extrabold text-slate-900 mt-1">{clientesConDeuda}</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {deudoresSinRegistro.length > 0 ? `${deudoresSinRegistro.length} sin registrar (fiados antiguos)` : 'Todos registrados'}
+              </p>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Clientes Registrados</h3>
+              <p className="text-3xl font-extrabold text-indigo-600 mt-1">{clientes.length}</p>
+            </div>
+          </div>
+
+          {/* Formulario de cliente */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm no-print">
+            <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <UserPlus size={18} className="text-indigo-600" />
+              {editandoClienteId ? 'Editar Cliente' : 'Registrar Nuevo Cliente'}
+            </h2>
+            <form onSubmit={handleGuardarCliente} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Juan Pérez"
+                  value={formCliente.nombre}
+                  onChange={(e) => setFormCliente({ ...formCliente, nombre: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Teléfono (opcional)</label>
+                <input
+                  type="tel"
+                  placeholder="Ej. 300 123 4567"
+                  value={formCliente.telefono}
+                  onChange={(e) => setFormCliente({ ...formCliente, telefono: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nota (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Trabaja en el piso 2"
+                  value={formCliente.nota}
+                  onChange={(e) => setFormCliente({ ...formCliente, nota: e.target.value })}
+                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow flex-1"
+                >
+                  {editandoClienteId ? 'Guardar Cambios' : 'Agregar Cliente'}
+                </button>
+                {editandoClienteId && (
+                  <button
+                    type="button"
+                    onClick={cancelarEdicionCliente}
+                    className="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          {/* Cuentas de clientes */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <HandCoins size={18} className="text-amber-600" /> Cuentas de Clientes y Fiados
+              </h2>
+              <input
+                type="text"
+                placeholder="Buscar cliente..."
+                value={busquedaCliente}
+                onChange={(e) => setBusquedaCliente(e.target.value)}
+                className="p-2 border border-slate-300 rounded-lg text-sm w-full md:w-64 focus:ring-2 focus:ring-indigo-500 outline-none no-print"
+              />
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs md:text-sm">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                    <th className="p-3">Cliente</th>
+                    <th className="p-3">Teléfono</th>
+                    <th className="p-3">Ventas Pendientes</th>
+                    <th className="p-3">Último Fiado</th>
+                    <th className="p-3">Deuda</th>
+                    <th className="p-3 text-right no-print">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {cuentasVisibles.map(cuenta => {
+                    const expandida = cuentaExpandida === cuenta.key;
+                    return (
+                      <React.Fragment key={cuenta.key}>
+                        <tr className={`transition ${cuenta.deuda > 0 ? 'bg-amber-50/40 hover:bg-amber-50' : 'hover:bg-slate-50'}`}>
+                          <td className="p-3 font-semibold">
+                            <button
+                              onClick={() => { setCuentaExpandida(expandida ? null : cuenta.key); setMedioPagoAbono('Efectivo'); }}
+                              className="flex items-center gap-1.5 text-left text-indigo-600 hover:underline"
+                            >
+                              {expandida ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              {cuenta.nombre}
+                            </button>
+                            {!cuenta.cliente && (
+                              <span className="ml-6 inline-block mt-1 text-[10px] font-bold bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">SIN REGISTRAR</span>
+                            )}
+                            {cuenta.cliente?.nota && <p className="ml-6 text-[11px] font-normal text-slate-400">{cuenta.cliente.nota}</p>}
+                          </td>
+                          <td className="p-3 text-slate-500">
+                            {cuenta.cliente?.telefono
+                              ? <span className="inline-flex items-center gap-1"><Phone size={12} /> {cuenta.cliente.telefono}</span>
+                              : '—'}
+                          </td>
+                          <td className="p-3">{cuenta.pendientes.length}</td>
+                          <td className="p-3 text-slate-500">{cuenta.ultimaFecha || '—'}</td>
+                          <td className="p-3">
+                            {cuenta.deuda > 0
+                              ? <span className="font-bold text-amber-700">${cuenta.deuda.toLocaleString()}</span>
+                              : <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Al día</span>}
+                          </td>
+                          <td className="p-3 text-right no-print">
+                            <div className="flex justify-end gap-2">
+                              {cuenta.cliente ? (
+                                <>
+                                  <button onClick={() => iniciarEdicionCliente(cuenta.cliente)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Editar cliente">
+                                    <Edit2 size={16} />
+                                  </button>
+                                  <button onClick={() => eliminarCliente(cuenta)} className="text-rose-500 hover:text-rose-700 p-1" title="Eliminar cliente">
+                                    <Trash2 size={16} />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => registrarDeudor(cuenta)}
+                                  disabled={procesandoCuenta}
+                                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
+                                  title="Registrar como cliente"
+                                >
+                                  <UserPlus size={14} /> Registrar
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {expandida && (
+                          <tr className="bg-slate-50/80">
+                            <td colSpan="6" className="p-4">
+                              <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-inner">
+                                {cuenta.pendientes.length === 0 ? (
+                                  <p className="text-sm text-slate-500">✅ {cuenta.nombre} no tiene deudas pendientes.</p>
+                                ) : (
+                                  <>
+                                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3 no-print">
+                                      <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Ventas pendientes por cobrar</p>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <label className="text-xs text-slate-600">Pagó con:</label>
+                                        <select
+                                          value={medioPagoAbono}
+                                          onChange={(e) => setMedioPagoAbono(e.target.value)}
+                                          className="p-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                                        >
+                                          <option value="Efectivo">Efectivo</option>
+                                          <option value="Transferencia">Transferencia</option>
+                                          <option value="Tarjeta">Tarjeta</option>
+                                          <option value="Nequi">Nequi</option>
+                                          <option value="Daviplata">Daviplata</option>
+                                        </select>
+                                        <button
+                                          onClick={() => handleSaldarTodo(cuenta)}
+                                          disabled={procesandoCuenta}
+                                          className="flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-700 transition shadow disabled:opacity-50"
+                                        >
+                                          <CheckCircle size={14} /> Saldar Todo (${cuenta.deuda.toLocaleString()})
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      {cuenta.pendientes
+                                        .slice()
+                                        .sort((a, b) => (a.creadoEn || 0) - (b.creadoEn || 0))
+                                        .map(v => (
+                                          <div key={v.id} className="flex justify-between items-center text-xs bg-slate-50 p-2 rounded border border-slate-100">
+                                            <div>
+                                              <span className="text-slate-500">{v.fecha}</span>
+                                              <span className="ml-3 font-semibold text-slate-800">{v.producto}</span>
+                                              <span className="ml-2 text-slate-500">x{v.cantidad}</span>
+                                              {v.variante && <span className="ml-2 text-slate-400">({v.variante})</span>}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                              <span className="font-bold text-slate-900">${v.total.toLocaleString()}</span>
+                                              <button
+                                                onClick={() => handlePagarVenta(v)}
+                                                disabled={procesandoCuenta}
+                                                className="text-emerald-700 hover:underline font-semibold no-print disabled:opacity-50"
+                                              >
+                                                Pagar
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                  {cuentasVisibles.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="p-6 text-center text-slate-400">
+                        {busquedaCliente ? 'Ningún cliente coincide con la búsqueda.' : 'No hay clientes registrados ni ventas fiadas.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ==================== PESTAÑA ESTADO DE CUENTA ==================== */}
       {pestana === 'estado_cuenta' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {/* Tarjeta de Efectivo Total en Caja (Corregida y limpia) */}
             <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
               <div className="flex justify-between items-start mb-4">
@@ -1207,6 +1686,24 @@ export default function App({ usuario }) {
                 </div>
               </div>
             </div>
+
+            <button
+              onClick={() => setPestana('clientes')}
+              className="text-left bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-amber-300 transition"
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Por Cobrar (Fiados)</h3>
+                  <p className="text-3xl font-extrabold text-amber-600 mt-1">${totalPorCobrar.toLocaleString()}</p>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {clientesConDeuda === 0 ? 'Nadie debe dinero.' : `${clientesConDeuda} cliente(s) con deuda. Ver en Clientes →`}
+                  </p>
+                </div>
+                <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
+                  <HandCoins className="w-6 h-6" />
+                </div>
+              </div>
+            </button>
           </div>
 
           {/* Ajustar efectivo base no registrado */}
