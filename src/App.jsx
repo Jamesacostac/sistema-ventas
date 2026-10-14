@@ -11,7 +11,7 @@ import {
 import { 
   CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart, Users, HandCoins, UserPlus, Phone
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart, Users, HandCoins, UserPlus, Phone, Merge
 } from 'lucide-react';
 
 export default function App({ usuario }) {
@@ -336,13 +336,72 @@ export default function App({ usuario }) {
 
   const eliminarCliente = async (cuenta) => {
     if (cuenta.deuda > 0) {
-      return alert(`No se puede eliminar a "${cuenta.nombre}" porque tiene una deuda pendiente de $${cuenta.deuda.toLocaleString()}.`);
+      return alert(`No se puede eliminar a "${cuenta.nombre}" porque tiene una deuda pendiente de $${cuenta.deuda.toLocaleString()}.\n\nSi es un registro duplicado, usa el botón "Fusionar" para pasar su deuda al cliente correcto.`);
     }
     if (!confirm(`¿Eliminar al cliente "${cuenta.nombre}"? Sus ventas pasadas se conservan en el historial.`)) return;
     try {
       await deleteDoc(doc(db, 'clientes', cuenta.cliente.id));
     } catch (error) {
       alert("Error al eliminar el cliente: " + error.message);
+    }
+  };
+
+  // ---- Fusionar registros duplicados ----
+  // Pasa TODAS las ventas (pagadas y pendientes) de una cuenta a otro cliente
+  // y elimina el registro duplicado. La deuda no se pierde: queda en el cliente destino.
+  const [fusionCuentaKey, setFusionCuentaKey] = useState(null);
+  const [fusionDestinoId, setFusionDestinoId] = useState('');
+
+  const ventasDeCuenta = (cuenta) => cuenta.cliente
+    ? ventas.filter(v => clienteDeVenta(v)?.id === cuenta.cliente.id)
+    : ventas.filter(v => !clienteDeVenta(v) && `nombre:${normalizarNombre(v.cliente) || 'sin nombre'}` === cuenta.key);
+
+  const abrirFusion = (cuenta) => {
+    setFusionCuentaKey(fusionCuentaKey === cuenta.key ? null : cuenta.key);
+    setFusionDestinoId('');
+    setCuentaExpandida(null);
+  };
+
+  const handleFusionar = async (cuenta) => {
+    const destino = clientes.find(c => c.id === fusionDestinoId);
+    if (!destino) return alert("Elige el cliente al que se pasarán las ventas.");
+    if (cuenta.cliente && destino.id === cuenta.cliente.id) return alert("Elige un cliente diferente.");
+
+    const ventasMover = ventasDeCuenta(cuenta);
+    const accion = cuenta.cliente ? `y se ELIMINARÁ el registro "${cuenta.nombre}"` : '';
+    if (!confirm(
+      `¿Pasar todo de "${cuenta.nombre}" a "${destino.nombre}"?\n\n` +
+      `• ${ventasMover.length} venta(s) se asignarán a ${destino.nombre}\n` +
+      `• Deuda que se traslada: $${cuenta.deuda.toLocaleString()}\n` +
+      `• Las ventas pasadas se conservan ${accion}`
+    )) return;
+
+    setProcesandoCuenta(true);
+    try {
+      const operaciones = ventasMover.map(v => ({
+        ref: doc(db, 'ventas', v.id),
+        datos: { clienteId: destino.id, cliente: destino.nombre }
+      }));
+
+      if (operaciones.length < 450) {
+        // Todo en una sola operación atómica: mover ventas + eliminar duplicado
+        const batch = writeBatch(db);
+        operaciones.forEach(({ ref, datos }) => batch.update(ref, datos));
+        if (cuenta.cliente) batch.delete(doc(db, 'clientes', cuenta.cliente.id));
+        await batch.commit();
+      } else {
+        // Primero se mueven las ventas; solo si todo sale bien se borra el duplicado
+        await actualizarEnLotes(operaciones);
+        if (cuenta.cliente) await deleteDoc(doc(db, 'clientes', cuenta.cliente.id));
+      }
+
+      setFusionCuentaKey(null);
+      setFusionDestinoId('');
+      alert(`Listo: las ventas de "${cuenta.nombre}" ahora pertenecen a "${destino.nombre}".`);
+    } catch (error) {
+      alert("Error al fusionar clientes: " + error.message);
+    } finally {
+      setProcesandoCuenta(false);
     }
   };
 
@@ -1512,7 +1571,7 @@ export default function App({ usuario }) {
                         <tr className={`transition ${cuenta.deuda > 0 ? 'bg-amber-50/40 hover:bg-amber-50' : 'hover:bg-slate-50'}`}>
                           <td className="p-3 font-semibold">
                             <button
-                              onClick={() => { setCuentaExpandida(expandida ? null : cuenta.key); setMedioPagoAbono('Efectivo'); }}
+                              onClick={() => { setCuentaExpandida(expandida ? null : cuenta.key); setMedioPagoAbono('Efectivo'); setFusionCuentaKey(null); }}
                               className="flex items-center gap-1.5 text-left text-indigo-600 hover:underline"
                             >
                               {expandida ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -1537,6 +1596,15 @@ export default function App({ usuario }) {
                           </td>
                           <td className="p-3 text-right no-print">
                             <div className="flex justify-end gap-2">
+                              {clientes.some(c => c.id !== cuenta.cliente?.id) && (
+                                <button
+                                  onClick={() => abrirFusion(cuenta)}
+                                  className={`p-1 transition ${fusionCuentaKey === cuenta.key ? 'text-amber-700' : 'text-amber-600 hover:text-amber-800'}`}
+                                  title={cuenta.cliente ? 'Fusionar: es un registro duplicado' : 'Asignar estas ventas a un cliente registrado'}
+                                >
+                                  <Merge size={16} />
+                                </button>
+                              )}
                               {cuenta.cliente ? (
                                 <>
                                   <button onClick={() => iniciarEdicionCliente(cuenta.cliente)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Editar cliente">
@@ -1559,6 +1627,51 @@ export default function App({ usuario }) {
                             </div>
                           </td>
                         </tr>
+
+                        {fusionCuentaKey === cuenta.key && (
+                          <tr className="bg-amber-50/60 no-print">
+                            <td colSpan="6" className="p-4">
+                              <div className="bg-white p-4 rounded-lg border border-amber-200 shadow-inner">
+                                <p className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
+                                  <Merge size={16} className="text-amber-600" />
+                                  {cuenta.cliente ? `Fusionar "${cuenta.nombre}" con otro cliente` : `Asignar las ventas de "${cuenta.nombre}" a un cliente`}
+                                </p>
+                                <p className="text-xs text-slate-500 mb-3">
+                                  {cuenta.cliente
+                                    ? 'Úsalo si este cliente quedó registrado dos veces. Sus ventas y su deuda pasan al cliente que elijas y este registro se elimina.'
+                                    : 'Úsalo si estas ventas son de un cliente que ya está registrado con otro nombre.'}
+                                  {' '}Se trasladarán <b>{ventasDeCuenta(cuenta).length} venta(s)</b> y una deuda de <b>${cuenta.deuda.toLocaleString()}</b>.
+                                </p>
+                                <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                                  <label className="text-xs font-semibold text-slate-600">Pasar a:</label>
+                                  <select
+                                    value={fusionDestinoId}
+                                    onChange={(e) => setFusionDestinoId(e.target.value)}
+                                    className="p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white sm:w-64"
+                                  >
+                                    <option value="">Elegir cliente...</option>
+                                    {clientes.filter(c => c.id !== cuenta.cliente?.id).map(c => (
+                                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    onClick={() => handleFusionar(cuenta)}
+                                    disabled={!fusionDestinoId || procesandoCuenta}
+                                    className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-amber-700 transition shadow disabled:opacity-50"
+                                  >
+                                    {cuenta.cliente ? 'Fusionar y eliminar duplicado' : 'Asignar ventas'}
+                                  </button>
+                                  <button
+                                    onClick={() => setFusionCuentaKey(null)}
+                                    className="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
 
                         {expandida && (
                           <tr className="bg-slate-50/80">
