@@ -3,7 +3,7 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDicYAqfjgkiBQ6B8r1NzTs0g7m7J95Bg",
+  apiKey: "AIzaSyDiCyAqfjgkiIbQ6B8r1NzTsOg7m7J95Bg",
   authDomain: "app-ventas-comestibles.firebaseapp.com",
   projectId: "app-ventas-comestibles",
   storageBucket: "app-ventas-comestibles.firebasestorage.app",
