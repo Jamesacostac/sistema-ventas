@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Documento de contexto interno (no publicar)
+contexto .pdf
+
+# Caché de Firebase Hosting
+.firebase/
