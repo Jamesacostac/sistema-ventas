@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { 
   collection, onSnapshot, doc
 } from 'firebase/firestore';
@@ -10,14 +10,16 @@ import Socios from './Socios';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
 import { MenuDesplegable, MenuItem, MenuSeparador, MenuTitulo, Plegable } from './ui';
-import { 
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line 
-} from 'recharts';
+import { useLectorCodigos } from './lectorCodigos';
+// La cámara y las etiquetas usan librerías pesadas: se cargan solo cuando se abren
+const Etiquetas = lazy(() => import('./Etiquetas'));
+const EscanerCamara = lazy(() => import('./Escaner').then(m => ({ default: m.EscanerCamara })));
+import { codigosDe, buscarProductoPorCodigo, generarCodigoInterno, consultarOpenFoodFacts, esCodigoInterno, limpiarCodigo } from './codigos';
 import {
   CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
   HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
-  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles
 } from 'lucide-react';
 
 // Fecha AAAA-MM-DD con la hora de Colombia. Antes se usaba la hora UTC y lo que se
@@ -25,6 +27,9 @@ import {
 const ZONA_HORARIA = 'America/Bogota';
 const fechaLocal = (momento = new Date()) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: ZONA_HORARIA, year: 'numeric', month: '2-digit', day: '2-digit' }).format(momento);
+
+// Formulario de producto vacío
+const FORM_PRODUCTO_VACIO = { productoId: '', nombre: '', costo: '', precio: '', variante: 'General', cantidad: '', vencimiento: '', categoria: '', descripcion: '', codigo: '' };
 
 // Formato de dinero colombiano: $12.500
 const dinero = (n) => {
@@ -234,10 +239,21 @@ export default function App({ usuario, onSesionVencida }) {
     cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: ''
   });
 
-  const [formProducto, setFormProducto] = useState({
-    productoId: '', 
-    nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: ''
-  });
+  const [formProducto, setFormProducto] = useState(FORM_PRODUCTO_VACIO);
+  // Agregando un lote a un producto que ya existe (se llega escaneando su código)
+  const modoLote = !!formProducto.productoId;
+
+  // ---- Códigos de barras: escáner, avisos breves y formulario ----
+  const [escaner, setEscaner] = useState(null); // 'venta' | 'inventario' | 'formulario'
+  const [toast, setToast] = useState(null);
+  const [formularioProductoAbierto, setFormularioProductoAbierto] = useState(false);
+  const [buscandoNombre, setBuscandoNombre] = useState(false);
+  const mostrarToast = (texto, tipo = 'ok') => setToast({ texto, tipo, id: Date.now() });
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const [formGasto, setFormGasto] = useState({
     concepto: '', monto: '', tipo: 'Proveedor', detalle: ''
@@ -598,7 +614,7 @@ export default function App({ usuario, onSesionVencida }) {
 
   // Agrega un producto al pedido (con un toque en el catálogo). Si ya está, suma la cantidad.
   const agregarProducto = (prod, variante = 'TODAS', cantidad = 1) => {
-    if (!exigir('ventas', 'registrar ventas')) return;
+    if (!exigir('ventas', 'registrar ventas')) return false;
     const existente = carrito.find(i => i.productoId === prod.id && i.variante === variante);
     const carritoNuevo = existente
       ? carrito.map(i => i === existente ? { ...i, cantidad: i.cantidad + cantidad } : i)
@@ -613,8 +629,12 @@ export default function App({ usuario, onSesionVencida }) {
         }];
 
     const { error } = simularCarrito(carritoNuevo);
-    if (error) return alert(`❌ ${error}`);
+    if (error) {
+      alert(`❌ ${error}`);
+      return false;
+    }
     setCarrito(carritoNuevo);
+    return true;
   };
 
   // Cambia la variante/lote de una línea del pedido (si ya existe esa variante, se juntan)
@@ -756,30 +776,41 @@ export default function App({ usuario, onSesionVencida }) {
       precio: prod.precio || '',
       categoria: prod.categoria || '',
       descripcion: prod.descripcion || '',
-      variante: 'Limonada',
+      variante: 'General',
       cantidad: '',
-      vencimiento: ''
+      vencimiento: '',
+      codigo: codigosDe(prod)[0] || ''
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const cancelarEdicion = () => {
     setEditandoProductoId(null);
-    setFormProducto({ productoId: '', nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: '' });
+    setFormProducto(FORM_PRODUCTO_VACIO);
+    setFormularioProductoAbierto(false);
   };
 
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
     if (!exigir('inventario', 'modificar el inventario')) return;
 
+    const codigoNuevo = limpiarCodigo(formProducto.codigo);
+    if (codigoNuevo) {
+      const duenio = buscarProductoPorCodigo(productos, codigoNuevo);
+      const propio = editandoProductoId || formProducto.productoId;
+      if (duenio && duenio.id !== propio) return alert(`El código ${codigoNuevo} ya pertenece a "${duenio.nombre}".`);
+    }
+
     try {
       if (editandoProductoId) {
         const prodObj = productos.find(p => p.id === editandoProductoId);
+        const otrosCodigos = codigosDe(prodObj).slice(1).filter(c => c !== codigoNuevo);
         const cambios = {
           nombre: formProducto.nombre.trim(),
           costo: Number(formProducto.costo),
           precio: Number(formProducto.precio),
-          categoria: formProducto.categoria || 'Sin categoría'
+          categoria: formProducto.categoria || 'Sin categoría',
+          codigos: codigoNuevo ? [codigoNuevo, ...otrosCodigos] : otrosCodigos
         };
         let detalle = `${cambios.nombre}: costo $${cambios.costo}, precio $${cambios.precio}`;
 
@@ -847,6 +878,7 @@ export default function App({ usuario, onSesionVencida }) {
             costo: Number(formProducto.costo),
             precio: Number(formProducto.precio),
             categoria: formProducto.categoria || 'Sin categoría',
+            codigos: codigoNuevo ? [codigoNuevo] : [],
             stock: cant,
             lotes: [
               {
@@ -861,7 +893,8 @@ export default function App({ usuario, onSesionVencida }) {
         }
       }
 
-      setFormProducto({ productoId: '', nombre: '', costo: '', precio: '', variante: 'Limonada', cantidad: '', vencimiento: '', categoria: '', descripcion: '' });
+      setFormProducto(FORM_PRODUCTO_VACIO);
+    setFormularioProductoAbierto(false);
     } catch (error) {
       alert("Error al guardar producto/lote: " + error.message);
     }
@@ -1115,6 +1148,76 @@ export default function App({ usuario, onSesionVencida }) {
     }
   };
 
+  // Venta: el código leído agrega el producto al pedido
+  const venderPorCodigo = (codigoLeido) => {
+    const codigo = limpiarCodigo(codigoLeido);
+    const prod = buscarProductoPorCodigo(productos, codigo);
+    if (!prod) return mostrarToast(`El código ${codigo} no está registrado. Regístralo en Inventario.`, 'error');
+    if (agregarProducto(prod)) mostrarToast(`+1 ${prod.nombre}`);
+  };
+
+  // Inventario: si el producto existe se agrega un lote; si no, se crea con ese código
+  const registrarPorCodigo = async (codigoLeido) => {
+    if (!exigir('inventario', 'registrar productos')) return;
+    const codigo = limpiarCodigo(codigoLeido);
+    if (!codigo) return;
+    const prod = buscarProductoPorCodigo(productos, codigo);
+    setEditandoProductoId(null);
+    setFormularioProductoAbierto(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (prod) {
+      const lotes = obtenerLotesNorm(prod);
+      setFormProducto({
+        ...FORM_PRODUCTO_VACIO,
+        productoId: prod.id,
+        nombre: prod.nombre,
+        costo: prod.costo ?? '',
+        precio: prod.precio ?? '',
+        categoria: prod.categoria || '',
+        variante: lotes[lotes.length - 1]?.variante || 'General',
+        codigo
+      });
+      mostrarToast(`${prod.nombre}: escribe la cantidad y el vencimiento del lote nuevo`, 'info');
+      return;
+    }
+
+    setFormProducto({ ...FORM_PRODUCTO_VACIO, codigo });
+    setBuscandoNombre(true);
+    const info = await consultarOpenFoodFacts(codigo);
+    setBuscandoNombre(false);
+    if (info) setFormProducto(actual => (actual.codigo === codigo && !actual.nombre ? { ...actual, nombre: info.nombre } : actual));
+    mostrarToast(info ? `Producto nuevo: encontramos "${info.nombre}"` : 'Producto nuevo: completa el nombre y el precio', 'info');
+  };
+
+  // Etiquetas: asignar códigos internos a productos que no tienen
+  const asignarCodigosInternos = async (ids) => {
+    if (!exigir('inventario', 'asignar códigos')) return;
+    const reservados = [];
+    const op = operacion('Códigos internos asignados', `${ids.length} producto(s)`);
+    ids.forEach(id => {
+      const p = productos.find(x => x.id === id);
+      if (!p) return;
+      const codigo = generarCodigoInterno(productos, reservados);
+      reservados.push(codigo);
+      op.actualizar(doc(db, 'productos', id), { codigos: [codigo, ...codigosDe(p)] }, { codigos: codigosDe(p) });
+    });
+    try {
+      await op.guardar();
+      mostrarToast(`Se asignaron ${reservados.length} código(s) internos`);
+    } catch (error) {
+      alert('Error al asignar los códigos: ' + error.message);
+    }
+  };
+
+  // Lo que se lee con la cámara o el lector va a la pantalla correspondiente
+  const alLeerCodigo = (codigo) => {
+    if (escaner === 'venta' || (!escaner && pestana === 'ventas')) return venderPorCodigo(codigo);
+    if (escaner === 'formulario' && editandoProductoId) return setFormProducto(f => ({ ...f, codigo: limpiarCodigo(codigo) }));
+    return registrarPorCodigo(codigo);
+  };
+  useLectorCodigos(alLeerCodigo, !escaner && (pestana === 'ventas' || pestana === 'inventario'));
+
   // Registros guardados con la fecha UTC (corrida un día después de las 7 p. m.).
   // La fecha correcta se obtiene del momento exacto en que se crearon (creadoEn).
   const fechaCorrecta = (r) => (r.creadoEn ? fechaLocal(new Date(r.creadoEn)) : r.fecha);
@@ -1320,13 +1423,16 @@ export default function App({ usuario, onSesionVencida }) {
           <MenuDesplegable
             etiqueta="Inventario"
             icono={<Package size={16} />}
-            activo={['inventario', 'categorias', 'catalogo'].includes(pestana)}
+            activo={['inventario', 'categorias', 'catalogo', 'etiquetas'].includes(pestana)}
           >
             <MenuItem icono={<Boxes size={16} />} onClick={() => setPestana('inventario')} activo={pestana === 'inventario'} detalle="Stock por lotes y vencimientos">
               Productos y lotes
             </MenuItem>
             <MenuItem icono={<Tag size={16} />} onClick={() => setPestana('categorias')} activo={pestana === 'categorias'}>
               Categorías
+            </MenuItem>
+            <MenuItem icono={<Tags size={16} />} onClick={() => setPestana('etiquetas')} activo={pestana === 'etiquetas'} detalle="Imprimir códigos de barras">
+              Etiquetas
             </MenuItem>
             <MenuSeparador />
             <MenuItem icono={<UtensilsCrossed size={16} />} onClick={() => setPestana('catalogo')} activo={pestana === 'catalogo'} detalle="Lo disponible para ofrecer">
@@ -1355,6 +1461,11 @@ export default function App({ usuario, onSesionVencida }) {
       {pestana === 'perfil' && <Perfil usuario={usuario} onReverificar={onSesionVencida} />}
       {pestana === 'socios' && <Socios usuario={usuario} />}
       {pestana === 'historial' && <Historial />}
+      {pestana === 'etiquetas' && (
+        <Suspense fallback={<p className="text-center text-gris-calido py-10">Cargando etiquetas...</p>}>
+          <Etiquetas productos={productos} puedeEditar={puede('inventario')} onAsignarCodigos={asignarCodigosInternos} />
+        </Suspense>
+      )}
 
       {/* ==================== PESTAÑA VENTAS (punto de venta) ==================== */}
       {pestana === 'ventas' && (() => {
@@ -1411,15 +1522,28 @@ export default function App({ usuario, onSesionVencida }) {
                 <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
                   <Store size={18} /> Productos
                 </h2>
-                <div className="relative w-full sm:w-64">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gris-calido" />
-                  <input
-                    type="search"
-                    placeholder="Buscar producto..."
-                    value={busquedaProducto}
-                    onChange={(e) => setBusquedaProducto(e.target.value)}
-                    className="campo pl-9"
-                  />
+                <div className="flex w-full sm:w-auto gap-2">
+                  <div className="relative flex-1 sm:w-64">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gris-calido" />
+                    <input
+                      type="search"
+                      placeholder="Buscar o escribir código..."
+                      value={busquedaProducto}
+                      onChange={(e) => setBusquedaProducto(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Un lector de códigos escribe aquí y termina con Enter
+                        if (e.key === 'Enter' && /^\d{6,}$/.test(busquedaProducto.trim())) {
+                          e.preventDefault();
+                          venderPorCodigo(busquedaProducto);
+                          setBusquedaProducto('');
+                        }
+                      }}
+                      className="campo pl-9"
+                    />
+                  </div>
+                  <button onClick={() => setEscaner('venta')} disabled={!puedeVender} className="btn btn-oscuro shrink-0" title="Escanear con la cámara">
+                    <ScanBarcode size={16} /> <span className="hidden md:inline">Escanear</span>
+                  </button>
                 </div>
               </div>
 
@@ -2177,13 +2301,76 @@ export default function App({ usuario, onSesionVencida }) {
       {/* ==================== PESTAÑA INVENTARIO ==================== */}
       {pestana === 'inventario' && (
         <div className="space-y-6">
+          <div className="panel p-4 flex flex-wrap items-center justify-between gap-3 no-print">
+            <p className="text-sm text-gris-calido flex items-center gap-2">
+              <Barcode size={18} className="text-tinta shrink-0" />
+              Escanea un producto para registrarlo o sumarle un lote. También funciona con lector USB/Bluetooth.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setEscaner('inventario')} disabled={!puede('inventario')} className="btn btn-oscuro btn-sm">
+                <ScanBarcode size={14} /> Escanear producto
+              </button>
+              <button onClick={() => setPestana('etiquetas')} className="btn btn-claro btn-sm">
+                <Tags size={14} /> Etiquetas
+              </button>
+            </div>
+          </div>
+
           <Plegable
-            titulo={editandoProductoId ? 'Editar producto' : 'Nuevo producto o lote'}
-            descripcion="Precio, categoría y lotes con fecha de vencimiento"
+            titulo={editandoProductoId ? 'Editar producto' : modoLote ? `Agregar lote: ${formProducto.nombre}` : 'Nuevo producto o lote'}
+            descripcion={modoLote ? 'Producto encontrado por su código' : 'Precio, categoría, código y lotes con fecha de vencimiento'}
             icono={<PackagePlus size={18} />}
-            forzarAbierto={!!editandoProductoId}
+            forzarAbierto={!!editandoProductoId || formularioProductoAbierto}
           >
             {!puede('inventario') && <AvisoSinPermiso accion="modificar el inventario" />}
+            {modoLote && (
+              <div className="aviso aviso-info mb-4 flex-wrap items-center justify-between">
+                <span>Vas a agregar un <b>lote nuevo</b> a <b>{formProducto.nombre}</b>. Escribe la cantidad, la variante y el vencimiento.</span>
+                <button type="button" onClick={cancelarEdicion} className="enlace text-xs">Cancelar</button>
+              </div>
+            )}
+            <div className="flex flex-wrap items-end gap-3 mb-4">
+              <div className="flex-1 min-w-[14rem]">
+                <label className="etiqueta">Código de barras <span className="font-normal text-gris-calido">(opcional)</span></label>
+                <div className="relative">
+                  <Barcode size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gris-calido" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Escanea o escribe el código"
+                    value={formProducto.codigo}
+                    disabled={modoLote || !puede('inventario')}
+                    onChange={(e) => setFormProducto({ ...formProducto, codigo: e.target.value })}
+                    onKeyDown={(e) => {
+                      // Al escanear en este campo (Enter), se busca si el producto ya existe
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (!editandoProductoId && formProducto.codigo.trim()) registrarPorCodigo(formProducto.codigo);
+                      }
+                    }}
+                    className="campo pl-9 font-mono"
+                  />
+                </div>
+                {formProducto.codigo && esCodigoInterno(limpiarCodigo(formProducto.codigo)) && <p className="text-[11px] text-gris-calido mt-1">Código interno de la tienda (para imprimir en etiqueta).</p>}
+                {buscandoNombre && <p className="text-[11px] text-gris-calido mt-1">Buscando el nombre en Open Food Facts...</p>}
+              </div>
+              {!modoLote && (
+                <>
+                  <button type="button" onClick={() => setEscaner('formulario')} disabled={!puede('inventario')} className="btn btn-claro">
+                    <ScanBarcode size={16} /> Escanear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormProducto(f => ({ ...f, codigo: generarCodigoInterno(productos) }))}
+                    disabled={!puede('inventario')}
+                    className="btn btn-claro"
+                    title="Para productos caseros que no traen código"
+                  >
+                    <Sparkles size={16} /> Generar código propio
+                  </button>
+                </>
+              )}
+            </div>
             <form onSubmit={handleGuardarProducto} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
               <fieldset disabled={!puede('inventario')} className="contents">
               <div>
@@ -2194,7 +2381,8 @@ export default function App({ usuario, onSesionVencida }) {
                   value={formProducto.nombre}
                   onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
                   className="campo"
-                  required={!editandoProductoId}
+                  required={!editandoProductoId && !modoLote}
+                  disabled={modoLote}
                 />
               </div>
               <div>
@@ -2206,7 +2394,8 @@ export default function App({ usuario, onSesionVencida }) {
                   value={formProducto.costo}
                   onChange={(e) => setFormProducto({ ...formProducto, costo: e.target.value })}
                   className="campo"
-                  required={!editandoProductoId}
+                  required={!editandoProductoId && !modoLote}
+                  disabled={modoLote}
                 />
               </div>
               <div>
@@ -2218,13 +2407,15 @@ export default function App({ usuario, onSesionVencida }) {
                   value={formProducto.precio}
                   onChange={(e) => setFormProducto({ ...formProducto, precio: e.target.value })}
                   className="campo"
-                  required={!editandoProductoId}
+                  required={!editandoProductoId && !modoLote}
+                  disabled={modoLote}
                 />
               </div>
               <div>
                 <label className="etiqueta">Categoría</label>
                 <select
                   value={formProducto.categoria}
+                  disabled={modoLote}
                   onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
                   className="campo"
                 >
@@ -2270,9 +2461,9 @@ export default function App({ usuario, onSesionVencida }) {
                   type="submit"
                   className="btn btn-primario flex-1"
                 >
-                  {editandoProductoId ? 'Guardar Cambios' : 'Añadir al Inventario'}
+                  {editandoProductoId ? 'Guardar Cambios' : modoLote ? 'Agregar lote' : 'Añadir al Inventario'}
                 </button>
-                {editandoProductoId && (
+                {(editandoProductoId || modoLote || formularioProductoAbierto) && (
                   <button
                     type="button"
                     onClick={cancelarEdicion}
@@ -2324,6 +2515,11 @@ export default function App({ usuario, onSesionVencida }) {
                               {expandido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                               {p.nombre}
                             </button>
+                            {codigosDe(p)[0] && (
+                              <span className="block font-mono text-[10px] text-gris-calido">
+                                {codigosDe(p)[0]}{esCodigoInterno(codigosDe(p)[0]) ? ' · interno' : ''}
+                              </span>
+                            )}
                             <FirmaCambio item={p} />
                           </td>
                           <td className="p-3 text-slate-500">{p.categoria || 'Sin categoría'}</td>
@@ -2446,6 +2642,29 @@ export default function App({ usuario, onSesionVencida }) {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {escaner && (
+        <Suspense fallback={null}>
+      <EscanerCamara
+        abierto={!!escaner}
+        continuo={escaner === 'venta'}
+        titulo={escaner === 'venta' ? 'Escanear productos para vender' : 'Escanear código del producto'}
+        onCerrar={() => setEscaner(null)}
+        onCodigo={alLeerCodigo}
+      />
+        </Suspense>
+      )}
+      {toast && (
+        <div
+          key={toast.id}
+          role="status"
+          className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] aviso no-print shadow-[4px_4px_0_rgba(40,32,59,0.25)] ${
+            toast.tipo === 'error' ? 'aviso-error' : toast.tipo === 'info' ? 'aviso-info' : 'aviso-ok'
+          }`}
+        >
+          {toast.texto}
         </div>
       )}
     </div>
