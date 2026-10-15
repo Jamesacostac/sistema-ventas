@@ -157,7 +157,7 @@ export default function Perfil({ usuario, onReverificar }) {
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       {/* Encabezado del perfil */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="panel p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-indigo-50 text-indigo-600 rounded-full">
             <UserCircle size={36} />
@@ -165,23 +165,23 @@ export default function Perfil({ usuario, onReverificar }) {
           <div>
             <h2 className="text-lg font-bold text-slate-900">{perfil?.nombre || 'Sin nombre'}</h2>
             <p className="text-sm text-slate-500">{usuario.email}</p>
-            <span className={`inline-block mt-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-              perfil?.rol === 'principal' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'
+            <span className={`mt-1 pastilla uppercase ${
+              perfil?.rol === 'principal' ? 'pastilla-pendiente' : 'pastilla-neutra'
             }`}>
-              {perfil?.rol === 'principal' ? 'Administrador principal' : 'Socio'}
+              {perfil?.rol === 'principal' ? 'Titular' : 'Socio'}
             </span>
           </div>
         </div>
         <button
           onClick={cerrarSesion}
-          className="flex items-center justify-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-900 transition shadow"
+          className="btn btn-oscuro"
         >
           <LogOut size={16} /> Cerrar sesión
         </button>
       </div>
 
       {/* Nombre de usuario */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+      <div className="panel p-6">
         <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
           <UserCircle size={18} className="text-indigo-600" /> Nombre de usuario
         </h3>
@@ -201,14 +201,14 @@ export default function Perfil({ usuario, onReverificar }) {
       </div>
 
       {/* Correo */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+      <div className="panel p-6">
         <h3 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
           <Mail size={18} className="text-indigo-600" /> Cambiar correo
         </h3>
         <p className="text-xs text-slate-500 mb-4">Llegará un enlace de confirmación al correo nuevo. Hasta que no lo abras, sigues usando el actual.</p>
         <form onSubmit={handleCambiarCorreo} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Correo nuevo</label>
+            <label className="etiqueta">Correo nuevo</label>
             <input
               type="email"
               required
@@ -218,7 +218,7 @@ export default function Perfil({ usuario, onReverificar }) {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña actual</label>
+            <label className="etiqueta">Contraseña actual</label>
             <input
               type="password"
               required
@@ -236,7 +236,7 @@ export default function Perfil({ usuario, onReverificar }) {
       </div>
 
       {/* Contraseña */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+      <div className="panel p-6">
         <div className="flex justify-between items-start mb-1">
           <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <KeyRound size={18} className="text-indigo-600" /> Cambiar contraseña
@@ -253,7 +253,7 @@ export default function Perfil({ usuario, onReverificar }) {
         <form onSubmit={handleCambiarClave} className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña actual</label>
+              <label className="etiqueta">Contraseña actual</label>
               <input
                 type={tipoInputClave}
                 autoComplete="current-password"
@@ -263,7 +263,7 @@ export default function Perfil({ usuario, onReverificar }) {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Nueva (mínimo 8)</label>
+              <label className="etiqueta">Nueva (mínimo 8)</label>
               <input
                 type={tipoInputClave}
                 autoComplete="new-password"
@@ -273,7 +273,7 @@ export default function Perfil({ usuario, onReverificar }) {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Confirmar nueva</label>
+              <label className="etiqueta">Confirmar nueva</label>
               <input
                 type={tipoInputClave}
                 autoComplete="new-password"
@@ -289,7 +289,7 @@ export default function Perfil({ usuario, onReverificar }) {
               type="button"
               onClick={handleEnviarCodigoClave}
               disabled={ocupado === 'codigo'}
-              className="flex items-center justify-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-900 transition shadow disabled:opacity-50"
+              className="btn btn-oscuro"
             >
               <Send size={16} /> {ocupado === 'codigo' ? 'Enviando...' : codigoEnviado ? 'Reenviar código' : 'Enviar código al correo'}
             </button>
@@ -316,7 +316,7 @@ export default function Perfil({ usuario, onReverificar }) {
       </div>
 
       {/* Dispositivos de confianza */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+      <div className="panel p-6">
         <h3 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
           <Smartphone size={18} className="text-indigo-600" /> Dispositivos de confianza
         </h3>
@@ -330,11 +330,11 @@ export default function Perfil({ usuario, onReverificar }) {
                 <div>
                   <p className="font-semibold text-slate-800">
                     {d.nombre}
-                    {d.id === idActual && <span className="ml-2 text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">ESTE DISPOSITIVO</span>}
+                    {d.id === idActual && <span className="ml-2 pastilla pastilla-info !text-[10px]">ESTE DISPOSITIVO</span>}
                   </p>
                   <p className="text-xs text-slate-500">Desde {formatoFecha(d.creado)} · vence {formatoFecha(d.expira)}</p>
                 </div>
-                <button onClick={() => handleRevocar(d)} className="text-rose-500 hover:text-rose-700 p-1" title="Dejar de confiar">
+                <button onClick={() => handleRevocar(d)} className="btn-icono btn-icono-peligro" title="Dejar de confiar">
                   <Trash2 size={16} />
                 </button>
               </div>

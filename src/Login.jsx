@@ -55,35 +55,35 @@ export default function Login() {
 
         <form onSubmit={handleIngresar} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Correo</label>
+            <label className="etiqueta">Correo</label>
             <input
               type="email"
               required
               autoComplete="username"
               value={correo}
               onChange={(e) => setCorreo(e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              className="campo"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña</label>
+            <label className="etiqueta">Contraseña</label>
             <input
               type="password"
               required
               autoComplete="current-password"
               value={clave}
               onChange={(e) => setClave(e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              className="campo"
             />
           </div>
 
-          {error && <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</p>}
-          {aviso && <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2">{aviso}</p>}
+          {error && <p className="btn btn-peligro btn-sm">{error}</p>}
+          {aviso && <p className="aviso aviso-ok">{aviso}</p>}
 
           <button
             type="submit"
             disabled={enviando}
-            className="marca-boton w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm disabled:opacity-60"
+            className="btn btn-primario w-full"
           >
             <LogIn size={16} /> {enviando ? 'Ingresando...' : 'Ingresar'}
           </button>

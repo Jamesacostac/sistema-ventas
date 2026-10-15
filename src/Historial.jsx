@@ -27,9 +27,9 @@ const diferencias = (antes, despues) => {
 };
 
 const colorAccion = (accion = '') =>
-  /eliminad|borrad|quitad/i.test(accion) ? 'bg-rose-100 text-rose-700'
-    : /cread|registrad|agregad/i.test(accion) ? 'bg-emerald-100 text-emerald-700'
-    : 'bg-amber-100 text-amber-800';
+  /eliminad|borrad|quitad/i.test(accion) ? 'pastilla-peligro'
+    : /cread|registrad|agregad|cobrad/i.test(accion) ? 'pastilla-ok'
+    : 'pastilla-pendiente';
 
 export default function Historial() {
   const [registros, setRegistros] = useState([]);
@@ -64,7 +64,7 @@ export default function Historial() {
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      <div className="panel p-5">
         <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
           <History size={18} className="text-indigo-600" /> Historial de cambios
         </h2>
@@ -75,7 +75,7 @@ export default function Historial() {
           <select
             value={filtroSocio}
             onChange={(e) => setFiltroSocio(e.target.value)}
-            className="p-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="campo"
           >
             <option value="">Todos los socios</option>
             {socios.map(s => <option key={s} value={s}>{s}</option>)}
@@ -84,7 +84,7 @@ export default function Historial() {
             type="date"
             value={filtroDia}
             onChange={(e) => setFiltroDia(e.target.value)}
-            className="p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="campo"
           />
           <div className="relative">
             <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -93,20 +93,20 @@ export default function Historial() {
               placeholder="Buscar (ej. eliminada, Limonada)"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              className="w-full p-2 pl-8 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              className="campo pl-8"
             />
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="panel overflow-hidden">
         {error && <p className="p-4 text-sm text-rose-600">{error}</p>}
         {cargando && <p className="p-6 text-center text-slate-400 text-sm">Cargando historial...</p>}
         {!cargando && visibles.length === 0 && !error && (
           <p className="p-6 text-center text-slate-400 text-sm">No hay cambios que coincidan con los filtros.</p>
         )}
 
-        <div className="divide-y divide-slate-200">
+        <div>
           {visibles.map(r => {
             const fecha = r.fecha?.toDate?.();
             const expandido = abierto === r.id;
@@ -119,7 +119,7 @@ export default function Historial() {
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${colorAccion(r.accion)}`}>{r.accion}</span>
+                      <span className={`pastilla ${colorAccion(r.accion)}`}>{r.accion}</span>
                       <span className="font-semibold text-slate-800">{r.nombre || 'Desconocido'}</span>
                     </div>
                     {r.detalle && <p className="text-xs text-slate-600 mt-1 break-words">{r.detalle}</p>}

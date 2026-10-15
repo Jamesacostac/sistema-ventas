@@ -172,4 +172,316 @@
     border-radius: 1.375rem;
     box-shadow: 8px 8px 0 rgba(40, 32, 59, 0.18);
   }
+
+  /* ================= SISTEMA DE DISEÑO DE LA APP =================
+     Botones (píldora, borde tinta, sombra cómic). Jerarquía:
+       .btn-primario  sol      -> la acción principal de cada formulario
+       .btn-oscuro    tinta    -> acciones fuertes secundarias
+       .btn-claro     papel    -> cancelar / acciones neutras
+       .btn-exito     verde    -> cobros y dinero que entra
+       .btn-peligro   coral    -> borrar
+     Botón de solo ícono: .btn-icono (+ .btn-icono-peligro)
+  */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: 2.5px solid var(--color-tinta);
+    border-radius: 999px;
+    padding: 0.5rem 1.1rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+    line-height: 1.25rem;
+    color: var(--color-tinta);
+    white-space: nowrap;
+    box-shadow: 3px 3px 0 var(--color-tinta);
+    transition: transform 0.1s ease, box-shadow 0.1s ease, background-color 0.15s ease;
+  }
+  .btn:hover:not(:disabled) {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--color-tinta);
+  }
+  .btn:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--color-tinta);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  .btn-sm {
+    padding: 0.3rem 0.8rem;
+    font-size: 0.75rem;
+    border-width: 2px;
+    box-shadow: 2px 2px 0 var(--color-tinta);
+  }
+  .btn-primario { background: var(--color-sol); }
+  .btn-primario:hover:not(:disabled) { background: var(--color-sol-claro); }
+  .btn-oscuro { background: var(--color-tinta); color: var(--color-crema); box-shadow: 3px 3px 0 rgba(40, 32, 59, 0.35); }
+  .btn-oscuro:hover:not(:disabled) { background: #3a2f52; box-shadow: 4px 4px 0 rgba(40, 32, 59, 0.35); }
+  .btn-claro { background: #fff; }
+  .btn-claro:hover:not(:disabled) { background: var(--color-crema); }
+  .btn-exito { background: #7EE5A8; }
+  .btn-exito:hover:not(:disabled) { background: #9aecbc; }
+  .btn-peligro { background: var(--color-coral); }
+  .btn-peligro:hover:not(:disabled) { background: #ef7d90; }
+
+  .btn-icono {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem;
+    border: 2px solid transparent;
+    border-radius: 0.6rem;
+    color: var(--color-tinta);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .btn-icono:hover:not(:disabled) { background: var(--color-crema); border-color: var(--color-tinta); }
+  .btn-icono-peligro { color: #C9425B; }
+  .btn-icono-peligro:hover:not(:disabled) { background: #FAD7DE; color: var(--color-tinta); }
+  .btn-icono:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Enlace de texto: subrayado turquesa */
+  .enlace {
+    font-weight: 700;
+    color: var(--color-tinta);
+    text-decoration: underline;
+    text-decoration-color: var(--color-turquesa);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+  .enlace:hover { text-decoration-color: var(--color-coral); }
+  .enlace-peligro { text-decoration-color: var(--color-coral); color: #A3324A; }
+
+  /* Panel / tarjeta de contenido */
+  .panel {
+    background: #fff;
+    border: 1.5px solid #E9E1D2;
+    border-radius: 1.25rem;
+    box-shadow: 0 2px 0 rgba(40, 32, 59, 0.05);
+  }
+
+  /* Separador entre bloques de un panel */
+  .separador {
+    border: 0;
+    border-top: 1.5px dashed #E2D9C8;
+    margin: 1.25rem 0;
+  }
+
+  /* Subtítulo de paso dentro de un formulario (1 · 2 · 3) */
+  .paso {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-gris-calido);
+  }
+  .paso-numero {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 999px;
+    background: var(--color-tinta);
+    color: var(--color-crema);
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+
+  /* Menú desplegable */
+  .menu-panel {
+    position: absolute;
+    z-index: 40;
+    min-width: 13rem;
+    margin-top: 0.4rem;
+    padding: 0.35rem;
+    background: #fff;
+    border: 2px solid var(--color-tinta);
+    border-radius: 1rem;
+    box-shadow: 4px 4px 0 rgba(40, 32, 59, 0.18);
+  }
+  .menu-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.65rem;
+    border-radius: 0.65rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-tinta);
+    text-align: left;
+  }
+  .menu-item:hover { background: var(--color-crema); }
+  .menu-item-activo { background: var(--color-tinta); color: var(--color-crema); }
+  .menu-item-activo:hover { background: var(--color-tinta); }
+  .menu-item-peligro { color: #A3324A; }
+  .menu-item-peligro:hover { background: #FAD7DE; }
+  .menu-separador { height: 1.5px; margin: 0.3rem 0.4rem; background: #E9E1D2; }
+  .menu-titulo {
+    padding: 0.4rem 0.65rem 0.2rem;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-gris-calido);
+  }
+
+  /* Ícono del título de cada panel: ficha de color con contorno tinta */
+  .panel :is(h2, h3) > svg:first-child {
+    box-sizing: content-box;
+    padding: 5px;
+    border: 1.5px solid var(--color-tinta);
+    border-radius: 10px;
+    background: var(--color-sol);
+    color: var(--color-tinta);
+    flex-shrink: 0;
+  }
+
+  /* Campos de formulario */
+  .campo {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 2px solid #D6CCBA;
+    border-radius: 0.75rem;
+    background: #fff;
+    font-size: 0.875rem;
+    color: var(--color-tinta);
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .campo:focus {
+    border-color: var(--color-tinta);
+    box-shadow: 0 0 0 3px rgba(85, 196, 191, 0.45);
+  }
+  .campo:disabled { background: var(--color-crema); cursor: not-allowed; }
+  .campo::placeholder { color: #9A929C; }
+  .etiqueta {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--color-tinta);
+  }
+
+  /* Avisos / pancartas: texto tinta sobre color (regla de oro del manual) */
+  .aviso {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.6rem 0.85rem;
+    border: 2px solid var(--color-tinta);
+    border-radius: 0.85rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--color-tinta);
+  }
+  .aviso-ok { background: #D3F6E2; }
+  .aviso-error { background: #FAD7DE; }
+  .aviso-atencion { background: #FDEFC9; }
+  .aviso-info { background: #D4F0EE; }
+
+  /* Pastillas de estado (Pagado, Pendiente, rangos...) */
+  .pastilla {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: fit-content;
+    padding: 0.15rem 0.6rem;
+    border: 2px solid var(--color-tinta);
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--color-tinta);
+    white-space: nowrap;
+  }
+  .pastilla-ok { background: #7EE5A8; }
+  .pastilla-pendiente { background: var(--color-sol); }
+  .pastilla-peligro { background: var(--color-coral); }
+  .pastilla-neutra { background: var(--color-crema); }
+  .pastilla-info { background: var(--color-turquesa-claro); }
+
+  /* Tarjetas de indicadores: bloques de color con trama de puntos */
+  .kpi {
+    position: relative;
+    overflow: hidden;
+    border: 2px solid var(--color-tinta);
+    border-radius: 1.25rem;
+    box-shadow: 3px 3px 0 rgba(40, 32, 59, 0.85);
+    color: var(--color-tinta);
+  }
+  .kpi-sol { background-color: var(--color-sol); }
+  .kpi-turquesa { background-color: var(--color-turquesa); }
+  .kpi-coral { background-color: var(--color-coral); }
+  .kpi-crema { background-color: var(--color-crema); }
+  .kpi-verde { background-color: #7EE5A8; }
+  .kpi-tinta { background-color: var(--color-tinta); color: var(--color-crema); }
+  .kpi-etiqueta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .kpi-valor {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .kpi-icono {
+    display: inline-flex;
+    padding: 0.4rem;
+    border: 2px solid currentColor;
+    border-radius: 0.75rem;
+    background: rgba(255, 253, 248, 0.55);
+  }
+  .kpi-tinta .kpi-icono { background: rgba(255, 253, 248, 0.12); }
+
+  /* Tablas: encabezado crema con etiquetas en mono */
+  .tabla thead tr {
+    background: var(--color-crema);
+    border-bottom: 1.5px solid #D6CCBA;
+  }
+  .tabla tbody tr { border-top: 1px solid #F0EADF; }
+  .tabla tbody tr:hover { background: #FFFDF8; }
+  .tabla thead th {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-tinta);
+  }
+
+  /* Pestañas de navegación */
+  .pestana {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.8rem;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: rgba(40, 32, 59, 0.78);
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .pestana:hover { background: var(--color-crema); color: var(--color-tinta); }
+  .pestana-activa,
+  .pestana-activa:hover {
+    background: var(--color-tinta);
+    color: var(--color-crema);
+    border-color: var(--color-tinta);
+    box-shadow: 2px 2px 0 rgba(40, 32, 59, 0.3);
+  }
+
+  /* Íconos de línea un poco más gruesos, como los del kit de marca */
+  svg.lucide { stroke-width: 2.25; }
 }

@@ -9,18 +9,41 @@ import Perfil from './Perfil';
 import Socios from './Socios';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
+import { MenuDesplegable, MenuItem, MenuSeparador, MenuTitulo, Plegable } from './ui';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line 
 } from 'recharts';
-import { 
-  CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
-  Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart, Users, HandCoins, UserPlus, Phone, Merge, Shield, UserCircle, History
+import {
+  CheckCircle, XCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
+  ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
+  HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus
 } from 'lucide-react';
+
+// Formato de dinero colombiano: $12.500
+const dinero = (n) => {
+  const valor = Math.round(Number(n) || 0);
+  return (valor < 0 ? '-$' : '$') + Math.abs(valor).toLocaleString('es-CO');
+};
+
+// Indicador en bloque de color (estilo de la marca)
+const Kpi = ({ color, icono, etiqueta, valor, detalle, onClick }) => {
+  const Contenedor = onClick ? 'button' : 'div';
+  return (
+    <Contenedor onClick={onClick} className={`kpi kpi-${color} p-4 text-left print-card ${onClick ? 'hover:-translate-y-0.5 transition' : ''}`}>
+      <div className="flex justify-between items-start gap-2">
+        <p className="kpi-etiqueta">{etiqueta}</p>
+        <span className="kpi-icono">{icono}</span>
+      </div>
+      <p className="kpi-valor text-2xl md:text-[1.75rem] leading-tight mt-1">{valor}</p>
+      {detalle && <p className="text-xs mt-1 font-medium opacity-80">{detalle}</p>}
+    </Contenedor>
+  );
+};
 
 // Aviso que aparece sobre un formulario cuando el socio no tiene ese rango de edición
 const AvisoSinPermiso = ({ accion }) => (
-  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
+  <p className="aviso aviso-atencion mb-3">
     🔒 Solo lectura: no tienes permiso para {accion}. El titular puede asignártelo en la pestaña Socios.
   </p>
 );
@@ -37,7 +60,7 @@ const firmaCambio = (item) => {
 
 const FirmaCambio = ({ item }) => {
   const texto = firmaCambio(item);
-  return texto ? <span className="block text-[10px] text-slate-400 font-normal" title="Último cambio">✎ {texto}</span> : null;
+  return texto ? <span className="block text-[10px] text-slate-400 font-normal whitespace-nowrap" title="Último cambio">✎ {texto}</span> : null;
 };
 
 export default function App({ usuario, onSesionVencida }) {
@@ -1143,13 +1166,13 @@ export default function App({ usuario, onSesionVencida }) {
   if (errorAcceso) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-slate-50 text-slate-800 font-sans p-4">
-        <div className="w-full max-w-sm bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+        <div className="panel w-full max-w-sm p-6 text-center">
           <AlertTriangle size={32} className="mx-auto text-amber-500 mb-3" />
           <p className="text-sm font-semibold mb-1">{errorAcceso}</p>
           <p className="text-xs text-slate-500 mb-4">Sesión: {usuario?.email}</p>
           <button
             onClick={handleCerrarSesion}
-            className="inline-flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-900 transition"
+            className="btn btn-oscuro"
           >
             <LogOut size={16} /> Cerrar sesión
           </button>
@@ -1173,123 +1196,97 @@ export default function App({ usuario, onSesionVencida }) {
       `}</style>
 
       {/* Encabezado Principal */}
-      <header className="marca-cabecera mb-6 p-4 rounded-2xl flex flex-wrap justify-between items-center gap-4 print-card print:mb-4">
-        <div className="order-1 flex items-center gap-3">
-          <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-14 w-14 shrink-0" />
-          <div>
-            <p className="marca-eyebrow text-tinta/80">Tazón para Dos · Comestibles</p>
-            <h1 className="marca-titular text-xl md:text-2xl text-tinta leading-tight">Ventas y Finanzas</h1>
-            <p className="text-xs md:text-sm text-tinta/80 font-medium">
-              {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </p>
+      <header className="marca-cabecera mb-6 rounded-2xl print-card print:mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="flex items-center gap-3">
+            <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-12 w-12 md:h-14 md:w-14 shrink-0" />
+            <div>
+              <p className="marca-eyebrow text-tinta/80">Tazón para Dos · Comestibles</p>
+              <h1 className="marca-titular text-xl md:text-2xl text-tinta leading-tight">Ventas y Finanzas</h1>
+              <p className="text-xs md:text-sm text-tinta/80 font-medium first-letter:uppercase">
+                {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 no-print">
+            <MenuDesplegable
+              etiqueta={<span className="hidden sm:inline">Telegram</span>}
+              icono={<Send size={16} />}
+              alinear="derecha"
+              claseBoton="btn btn-claro btn-sm"
+            >
+              <MenuTitulo>Enviar a los socios</MenuTitulo>
+              <MenuItem icono={<BellRing size={16} />} onClick={handleEnviarAlertaStockTelegram} detalle="Productos agotados o por agotarse">
+                Alerta de stock
+              </MenuItem>
+              <MenuItem icono={<Send size={16} />} onClick={handleEnviarReporteTelegram} detalle="Ventas, ahorro y pago por socio">
+                Informe de cierre
+              </MenuItem>
+            </MenuDesplegable>
+
+            <MenuDesplegable
+              etiqueta={<span className="max-w-[9rem] truncate">{perfil?.nombre?.split(' ')[0] || usuario?.displayName?.split(' ')[0] || 'Mi cuenta'}</span>}
+              icono={<UserCircle size={16} />}
+              alinear="derecha"
+              claseBoton="btn btn-oscuro btn-sm"
+            >
+              <MenuTitulo>{usuario?.email}</MenuTitulo>
+              <MenuItem icono={<UserCircle size={16} />} onClick={() => setPestana('perfil')} activo={pestana === 'perfil'} detalle="Nombre, correo, contraseña y dispositivos">
+                Mi perfil
+              </MenuItem>
+              <MenuSeparador />
+              <MenuItem icono={<LogOut size={16} />} onClick={handleCerrarSesion} peligro>
+                Cerrar sesión
+              </MenuItem>
+            </MenuDesplegable>
           </div>
         </div>
 
-        {/* Pestañas */}
-        <div className="order-3 w-full flex items-center gap-1.5 no-print bg-papel p-1.5 rounded-2xl border-2 border-tinta flex-wrap justify-center">
-          <button 
-            onClick={() => setPestana('ventas')}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'ventas' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
-            }`}
-          >
-            <ShoppingBag size={16} /> Ventas & Cierre
+        {/* Navegación principal */}
+        <nav className="no-print mx-3 mb-3 flex flex-wrap items-center justify-center gap-1 bg-papel p-1.5 rounded-2xl border-2 border-tinta">
+          <button onClick={() => setPestana('ventas')} className={`pestana ${pestana === 'ventas' ? 'pestana-activa' : ''}`}>
+            <ShoppingCart size={16} /> Ventas
           </button>
-          <button
-            onClick={() => setPestana('clientes')}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'clientes' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
-            }`}
-          >
+          <button onClick={() => setPestana('clientes')} className={`pestana ${pestana === 'clientes' ? 'pestana-activa' : ''}`}>
             <Users size={16} /> Clientes
             {clientesConDeuda > 0 && (
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${pestana === 'clientes' ? 'bg-sol text-tinta' : 'bg-coral text-tinta'}`}>
-                {clientesConDeuda}
-              </span>
+              <span className="pastilla pastilla-peligro !px-1.5 !py-0 !text-[10px]" title="Clientes con deuda">{clientesConDeuda}</span>
             )}
           </button>
-          <button
-            onClick={() => setPestana('estado_cuenta')}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'estado_cuenta' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
-            }`}
+          <MenuDesplegable
+            etiqueta="Inventario"
+            icono={<Package size={16} />}
+            activo={['inventario', 'categorias', 'catalogo'].includes(pestana)}
           >
-            <Wallet size={16} /> Estado de Cuenta
+            <MenuItem icono={<Boxes size={16} />} onClick={() => setPestana('inventario')} activo={pestana === 'inventario'} detalle="Stock por lotes y vencimientos">
+              Productos y lotes
+            </MenuItem>
+            <MenuItem icono={<Tag size={16} />} onClick={() => setPestana('categorias')} activo={pestana === 'categorias'}>
+              Categorías
+            </MenuItem>
+            <MenuSeparador />
+            <MenuItem icono={<UtensilsCrossed size={16} />} onClick={() => setPestana('catalogo')} activo={pestana === 'catalogo'} detalle="Lo disponible para ofrecer">
+              Carta
+            </MenuItem>
+          </MenuDesplegable>
+          <button onClick={() => setPestana('estado_cuenta')} className={`pestana ${pestana === 'estado_cuenta' ? 'pestana-activa' : ''}`}>
+            <Wallet size={16} /> Finanzas
           </button>
-          <button 
-            onClick={() => setPestana('inventario')}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'inventario' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
-            }`}
+          <MenuDesplegable
+            etiqueta="Equipo"
+            icono={<Handshake size={16} />}
+            activo={['socios', 'historial'].includes(pestana)}
+            alinear="derecha"
           >
-            <Package size={16} /> Inventario
-          </button>
-          <button 
-            onClick={() => setPestana('categorias')}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'categorias' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
-            }`}
-          >
-            <Tag size={16} /> Categorías
-          </button>
-          <button 
-            onClick={() => setPestana('catalogo')}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'catalogo' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
-            }`}
-          >
-            <BookOpen size={16} /> Carta
-          </button>
-          <button
-            onClick={() => setPestana('socios')}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'socios' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
-            }`}
-          >
-            <Shield size={16} /> Socios
-          </button>
-          <button
-            onClick={() => setPestana('historial')}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'historial' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
-            }`}
-          >
-            <History size={16} /> Historial
-          </button>
-        </div>
-
-        {/* Botones Telegram */}
-        <div className="order-2 flex items-center gap-2 no-print flex-wrap justify-center sm:justify-end">
-          <button 
-            onClick={handleEnviarAlertaStockTelegram}
-            className="marca-boton flex items-center gap-1.5 px-3 py-1.5 text-xs md:text-sm"
-            title="Enviar alerta de stock a Telegram"
-          >
-            <AlertTriangle size={16} /> Alertar Stock
-          </button>
-          <button 
-            onClick={handleEnviarReporteTelegram}
-            className="flex items-center gap-1.5 bg-papel text-tinta border-[3px] border-tinta rounded-full px-3 py-1.5 shadow-[3px_3px_0_#28203B] hover:bg-crema transition text-xs md:text-sm font-bold"
-          >
-            <Send size={16} /> Enviar Cierre
-          </button>
-          <button
-            onClick={() => setPestana('perfil')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border-[3px] border-tinta shadow-[3px_3px_0_#28203B] transition text-xs md:text-sm font-bold ${
-              pestana === 'perfil' ? 'bg-tinta text-crema' : 'bg-papel text-tinta hover:bg-crema'
-            }`}
-            title={`Sesión iniciada como ${usuario?.email || ''}`}
-          >
-            <UserCircle size={16} /> {usuario?.displayName?.split(' ')[0] || 'Mi Perfil'}
-          </button>
-          <button
-            onClick={handleCerrarSesion}
-            className="flex items-center gap-1.5 bg-tinta text-crema border-[3px] border-tinta rounded-full px-3 py-1.5 shadow-[3px_3px_0_rgba(40,32,59,0.35)] hover:bg-slate-900 transition text-xs md:text-sm font-bold"
-            title="Cerrar sesión"
-          >
-            <LogOut size={16} /> Salir
-          </button>
-        </div>
+            <MenuItem icono={<Handshake size={16} />} onClick={() => setPestana('socios')} activo={pestana === 'socios'} detalle="Cuentas y rangos de edición">
+              Socios
+            </MenuItem>
+            <MenuItem icono={<History size={16} />} onClick={() => setPestana('historial')} activo={pestana === 'historial'} detalle="Quién cambió qué y cuándo">
+              Historial de cambios
+            </MenuItem>
+          </MenuDesplegable>
+        </nav>
       </header>
 
       {pestana === 'perfil' && <Perfil usuario={usuario} onReverificar={onSesionVencida} />}
@@ -1299,41 +1296,30 @@ export default function App({ usuario, onSesionVencida }) {
       {/* ==================== PESTAÑA VENTAS ==================== */}
       {pestana === 'ventas' && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 print:gap-2 print:mb-4">
-            <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm print-card">
-              <p className="text-xs text-slate-500 font-medium">Ventas Pagadas Hoy</p>
-              <h3 className="text-lg md:text-2xl font-bold text-slate-900">${totalIngresosDia.toLocaleString()}</h3>
-            </div>
-            <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm print-card">
-              <p className="text-xs text-slate-500 font-medium">Fondo Reposición</p>
-              <h3 className="text-lg md:text-2xl font-bold text-blue-600">${totalReposicionDia.toLocaleString()}</h3>
-            </div>
-            <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm print-card">
-              <p className="text-xs text-slate-500 font-medium">Ahorro Mejoras (15%)</p>
-              <h3 className="text-lg md:text-2xl font-bold text-emerald-600">${fondoAhorro.toLocaleString()}</h3>
-            </div>
-            <div className="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm print-card">
-              <p className="text-xs text-slate-500 font-medium">Pago c/u (3 Socios)</p>
-              <h3 className="text-lg md:text-2xl font-bold text-indigo-600">${salarioPorSocio.toLocaleString(undefined, {maximumFractionDigits: 0})}</h3>
-            </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 print:gap-2 print:mb-4">
+            <Kpi color="sol" icono={<Banknote size={18} />} etiqueta="Ventas pagadas" valor={dinero(totalIngresosDia)} detalle={`${ventasPagadas.length} venta(s)`} />
+            <Kpi color="turquesa" icono={<RefreshCw size={18} />} etiqueta="Fondo reposición" valor={dinero(totalReposicionDia)} detalle="Costo de lo vendido" />
+            <Kpi color="verde" icono={<PiggyBank size={18} />} etiqueta="Ahorro mejoras" valor={dinero(fondoAhorro)} detalle="15 % de la ganancia" />
+            <Kpi color="coral" icono={<Handshake size={18} />} etiqueta="Pago por socio" valor={dinero(salarioPorSocio)} detalle="Ganancia neta ÷ 3" />
           </div>
 
-          <div className="no-print bg-white p-5 rounded-xl border border-slate-200 shadow-sm mb-6">
-            <h2 className="text-lg font-bold mb-4 text-slate-800 flex items-center gap-2">
-              <PlusCircle size={20} className="text-indigo-600" /> Registrar Nueva Venta / Regalo
+          <div className="panel no-print p-5 mb-6">
+            <h2 className="text-lg font-bold mb-5 text-tinta flex items-center gap-2.5">
+              <ShoppingCart size={18} /> Nueva venta
             </h2>
 
             {/* Paso 1: agregar productos al carrito */}
+            <p className="paso"><span className="paso-numero">1</span> Elige los productos</p>
             {!puede('ventas') && <AvisoSinPermiso accion="registrar ventas" />}
             <form onSubmit={handleAgregarAlCarrito} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
               <fieldset disabled={!puede('ventas')} className="contents">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Producto</label>
+                <label className="etiqueta">Producto</label>
                 <select
                   required
                   value={formVenta.productoId}
                   onChange={(e) => setFormVenta({ ...formVenta, productoId: e.target.value, variante: 'TODAS' })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  className="campo"
                 >
                   <option value="">Seleccionar Producto...</option>
                   {productos.map((p) => {
@@ -1350,11 +1336,11 @@ export default function App({ usuario, onSesionVencida }) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Variante / Lote</label>
+                <label className="etiqueta">Variante / Lote</label>
                 <select
                   value={formVenta.variante}
                   onChange={(e) => setFormVenta({ ...formVenta, variante: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  className="campo"
                 >
                   <option value="TODAS">Automático (FEFO)</option>
                   {(() => {
@@ -1370,7 +1356,7 @@ export default function App({ usuario, onSesionVencida }) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
+                <label className="etiqueta">Cantidad</label>
                 <input
                   type="number"
                   min="1"
@@ -1378,28 +1364,31 @@ export default function App({ usuario, onSesionVencida }) {
                   required
                   value={formVenta.cantidad}
                   onChange={(e) => setFormVenta({ ...formVenta, cantidad: Number(e.target.value) })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                 />
               </div>
 
               <button
                 type="submit"
-                className="flex items-center justify-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-slate-900 transition shadow"
+                className="btn btn-oscuro"
               >
                 <ShoppingCart size={16} /> Agregar al Carrito
               </button>
               </fieldset>
             </form>
 
+            <hr className="separador" />
+
             {/* Paso 2: revisar el carrito */}
-            <div className="mt-5 border border-slate-200 rounded-xl overflow-hidden">
-              <div className="flex justify-between items-center px-4 py-2.5 bg-slate-50 border-b border-slate-200">
-                <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                  <ShoppingCart size={16} className="text-indigo-600" />
+            <p className="paso"><span className="paso-numero">2</span> Revisa el carrito</p>
+            <div className="border-[1.5px] border-[#E9E1D2] rounded-xl overflow-hidden">
+              <div className="flex justify-between items-center px-4 py-2.5 bg-crema border-b-[1.5px] border-[#E9E1D2]">
+                <h3 className="text-sm font-bold text-tinta flex items-center gap-2">
+                  <ShoppingCart size={16} />
                   Carrito ({carrito.length} {carrito.length === 1 ? 'producto' : 'productos'}, {unidadesCarrito} un.)
                 </h3>
                 {carrito.length > 0 && (
-                  <button onClick={handleVaciarCarrito} className="text-xs font-semibold text-rose-600 hover:text-rose-700">
+                  <button onClick={handleVaciarCarrito} className="enlace enlace-peligro text-xs">
                     Vaciar
                   </button>
                 )}
@@ -1409,9 +1398,9 @@ export default function App({ usuario, onSesionVencida }) {
                 <p className="p-4 text-center text-sm text-slate-400">Agrega productos para armar la venta.</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs md:text-sm">
+                  <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
                     <thead>
-                      <tr className="text-slate-500 border-b border-slate-200">
+                      <tr className="text-slate-500 border-b-[1.5px] border-[#E9E1D2]">
                         <th className="p-3">Producto</th>
                         <th className="p-3">Variante</th>
                         <th className="p-3">Precio</th>
@@ -1420,12 +1409,12 @@ export default function App({ usuario, onSesionVencida }) {
                         <th className="p-3 text-right"></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody>
                       {carrito.map(item => (
                         <tr key={item.key}>
                           <td className="p-3 font-semibold text-slate-800">{item.nombre}</td>
                           <td className="p-3 text-slate-500">{item.variante === 'TODAS' ? 'Automático (FEFO)' : item.variante}</td>
-                          <td className="p-3">${item.precio.toLocaleString()}</td>
+                          <td className="p-3">{dinero(item.precio)}</td>
                           <td className="p-3">
                             <input
                               type="number"
@@ -1433,12 +1422,12 @@ export default function App({ usuario, onSesionVencida }) {
                               step="1"
                               value={item.cantidad}
                               onChange={(e) => handleCambiarCantidadItem(item.key, e.target.value)}
-                              className="w-20 p-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                              className="campo w-20"
                             />
                           </td>
-                          <td className="p-3 font-bold text-slate-900">${(item.precio * item.cantidad).toLocaleString()}</td>
+                          <td className="p-3 font-bold text-slate-900">{dinero(item.precio * item.cantidad)}</td>
                           <td className="p-3 text-right">
-                            <button onClick={() => handleQuitarItem(item.key)} className="text-rose-500 hover:text-rose-700 p-1" title="Quitar del carrito">
+                            <button onClick={() => handleQuitarItem(item.key)} className="btn-icono btn-icono-peligro" title="Quitar del carrito">
                               <Trash2 size={16} />
                             </button>
                           </td>
@@ -1450,10 +1439,13 @@ export default function App({ usuario, onSesionVencida }) {
               )}
             </div>
 
+            <hr className="separador" />
+
             {/* Paso 3: datos del cliente y pago, y confirmar */}
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+            <p className="paso"><span className="paso-numero">3</span> Cliente y pago</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Cliente</label>
+                <label className="etiqueta">Nombre del Cliente</label>
                 <input
                   type="text"
                   list="lista-clientes"
@@ -1482,11 +1474,11 @@ export default function App({ usuario, onSesionVencida }) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Medio de Pago</label>
+                <label className="etiqueta">Medio de Pago</label>
                 <select
                   value={formVenta.medioPago}
                   onChange={(e) => setFormVenta({ ...formVenta, medioPago: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  className="campo"
                 >
                   <option value="Efectivo">Efectivo</option>
                   <option value="Transferencia">Transferencia</option>
@@ -1497,23 +1489,23 @@ export default function App({ usuario, onSesionVencida }) {
 
               {formVenta.medioPago === 'Otro' && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Especificar Medio</label>
+                  <label className="etiqueta">Especificar Medio</label>
                   <input
                     type="text"
                     placeholder="Ej. Nequi, Daviplata..."
                     value={formVenta.otroMedioPago}
                     onChange={(e) => setFormVenta({ ...formVenta, otroMedioPago: e.target.value })}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="campo"
                   />
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Estado de Pago</label>
+                <label className="etiqueta">Estado de Pago</label>
                 <select
                   value={formVenta.pagado ? 'true' : 'false'}
                   onChange={(e) => setFormVenta({ ...formVenta, pagado: e.target.value === 'true' })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  className="campo"
                 >
                   <option value="true">Pagado</option>
                   <option value="false">Pendiente</option>
@@ -1522,13 +1514,13 @@ export default function App({ usuario, onSesionVencida }) {
 
               <div className={`flex flex-col gap-2 ${formVenta.medioPago === 'Otro' ? '' : 'lg:col-span-2'}`}>
                 <p className="text-right text-sm text-slate-600">
-                  Total: <span className="text-xl font-extrabold text-slate-900">${totalCarrito.toLocaleString()}</span>
+                  Total: <span className="text-xl font-extrabold text-slate-900">{dinero(totalCarrito)}</span>
                 </p>
                 <button
                   type="button"
                   onClick={handleRegistrarVenta}
                   disabled={carrito.length === 0 || guardandoVenta}
-                  className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn btn-primario"
                 >
                   {guardandoVenta ? 'Registrando...' : 'Registrar Venta'}
                 </button>
@@ -1536,21 +1528,21 @@ export default function App({ usuario, onSesionVencida }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-            <div className="p-4 border-b border-slate-200 flex justify-between items-center">
-              <h2 className="text-base font-bold text-slate-800">Historial de Ventas Registradas</h2>
+          <div className="panel overflow-hidden mb-6">
+            <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2] flex flex-wrap gap-3 justify-between items-center">
+              <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><ClipboardList size={18} /> Historial de ventas</h2>
               <button
                 onClick={handleBorrarVentasPagadas}
-                className="bg-rose-50 text-rose-600 border border-rose-200 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-rose-100 transition flex items-center gap-1.5 no-print"
+                className="btn btn-peligro btn-sm no-print"
               >
                 <Trash2 size={14} /> Borrar Ventas Pagadas
               </button>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs md:text-sm">
+              <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                  <tr>
                     <th className="p-3">Fecha</th>
                     <th className="p-3">Cliente</th>
                     <th className="p-3">Producto</th>
@@ -1562,21 +1554,22 @@ export default function App({ usuario, onSesionVencida }) {
                     <th className="p-3 text-right no-print">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody>
                   {ventas.map((v) => (
                     <tr key={v.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 text-slate-500">{v.fecha}<FirmaCambio item={v} /></td>
+                      <td className="p-3 text-slate-500 whitespace-nowrap">{v.fecha}<FirmaCambio item={v} /></td>
                       <td className="p-3 font-medium text-slate-800">{v.cliente}</td>
                       <td className="p-3 font-semibold text-indigo-600">{v.producto}</td>
                       <td className="p-3 text-slate-500">{v.variante}</td>
                       <td className="p-3">{v.cantidad}</td>
-                      <td className="p-3 font-bold text-slate-900">${v.total.toLocaleString()}</td>
-                      <td className="p-3"><span className="px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-600">{v.medioPago}</span></td>
+                      <td className="p-3 font-bold text-slate-900">{dinero(v.total)}</td>
+                      <td className="p-3"><span className="pastilla pastilla-neutra">{v.medioPago}</span></td>
                       <td className="p-3">
                         <button 
                           onClick={() => togglePago(v.id, v.pagado)}
-                          className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 w-fit transition ${
-                            v.pagado ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                          title="Cambiar estado de pago"
+                          className={`pastilla hover:brightness-95 transition ${
+                            v.pagado ? 'pastilla-ok' : 'pastilla-pendiente'
                           }`}
                         >
                           {v.pagado ? <CheckCircle size={12} /> : <XCircle size={12} />}
@@ -1586,7 +1579,7 @@ export default function App({ usuario, onSesionVencida }) {
                       <td className="p-3 text-right no-print">
                         <button 
                           onClick={() => eliminarVenta(v.id)}
-                          className="text-rose-500 hover:text-rose-700 p-1"
+                          className="btn-icono btn-icono-peligro"
                           title="Eliminar venta"
                         >
                           <Trash2 size={16} />
@@ -1609,69 +1602,57 @@ export default function App({ usuario, onSesionVencida }) {
       {/* ==================== PESTAÑA CLIENTES Y FIADOS ==================== */}
       {pestana === 'clientes' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Total por Cobrar</h3>
-              <p className="text-3xl font-extrabold text-amber-600 mt-1">${totalPorCobrar.toLocaleString()}</p>
-              <p className="text-xs text-slate-500 mt-1">{ventasPendientes.length} venta(s) pendiente(s)</p>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Clientes con Deuda</h3>
-              <p className="text-3xl font-extrabold text-slate-900 mt-1">{clientesConDeuda}</p>
-              <p className="text-xs text-slate-500 mt-1">
-                {deudoresSinRegistro.length > 0 ? `${deudoresSinRegistro.length} sin registrar (fiados antiguos)` : 'Todos registrados'}
-              </p>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Clientes Registrados</h3>
-              <p className="text-3xl font-extrabold text-indigo-600 mt-1">{clientes.length}</p>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
+            <Kpi color="sol" icono={<HandCoins size={18} />} etiqueta="Total por cobrar" valor={dinero(totalPorCobrar)} detalle={`${ventasPendientes.length} venta(s) pendiente(s)`} />
+            <Kpi color="coral" icono={<Users size={18} />} etiqueta="Clientes con deuda" valor={clientesConDeuda} detalle={deudoresSinRegistro.length > 0 ? `${deudoresSinRegistro.length} sin registrar (fiados antiguos)` : 'Todos registrados'} />
+            <Kpi color="turquesa" icono={<UserPlus size={18} />} etiqueta="Clientes registrados" valor={clientes.length} detalle="En el directorio" />
           </div>
 
           {/* Formulario de cliente */}
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm no-print">
-            <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <UserPlus size={18} className="text-indigo-600" />
-              {editandoClienteId ? 'Editar Cliente' : 'Registrar Nuevo Cliente'}
-            </h2>
+          <Plegable
+            titulo={editandoClienteId ? 'Editar cliente' : 'Nuevo cliente'}
+            descripcion="Nombre, teléfono y una nota"
+            icono={<UserPlus size={18} />}
+            forzarAbierto={!!editandoClienteId}
+          >
             {!puede('clientes') && <AvisoSinPermiso accion="gestionar clientes" />}
             <form onSubmit={handleGuardarCliente} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               <fieldset disabled={!puede('clientes')} className="contents">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
+                <label className="etiqueta">Nombre</label>
                 <input
                   type="text"
                   required
                   placeholder="Ej. Juan Pérez"
                   value={formCliente.nombre}
                   onChange={(e) => setFormCliente({ ...formCliente, nombre: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Teléfono (opcional)</label>
+                <label className="etiqueta">Teléfono (opcional)</label>
                 <input
                   type="tel"
                   placeholder="Ej. 300 123 4567"
                   value={formCliente.telefono}
                   onChange={(e) => setFormCliente({ ...formCliente, telefono: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nota (opcional)</label>
+                <label className="etiqueta">Nota (opcional)</label>
                 <input
                   type="text"
                   placeholder="Ej. Trabaja en el piso 2"
                   value={formCliente.nota}
                   onChange={(e) => setFormCliente({ ...formCliente, nota: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                 />
               </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow flex-1"
+                  className="btn btn-primario flex-1"
                 >
                   {editandoClienteId ? 'Guardar Cambios' : 'Agregar Cliente'}
                 </button>
@@ -1679,7 +1660,7 @@ export default function App({ usuario, onSesionVencida }) {
                   <button
                     type="button"
                     onClick={cancelarEdicionCliente}
-                    className="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
+                    className="btn btn-claro"
                   >
                     Cancelar
                   </button>
@@ -1687,27 +1668,27 @@ export default function App({ usuario, onSesionVencida }) {
               </div>
               </fieldset>
             </form>
-          </div>
+          </Plegable>
 
           {/* Cuentas de clientes */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+          <div className="panel overflow-hidden">
+            <div className="p-4 border-b-[1.5px] border-[#E9E1D2] flex flex-col md:flex-row md:justify-between md:items-center gap-3">
               <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <HandCoins size={18} className="text-amber-600" /> Cuentas de Clientes y Fiados
+                <HandCoins size={18} /> Cuentas de Clientes y Fiados
               </h2>
               <input
                 type="text"
                 placeholder="Buscar cliente..."
                 value={busquedaCliente}
                 onChange={(e) => setBusquedaCliente(e.target.value)}
-                className="p-2 border border-slate-300 rounded-lg text-sm w-full md:w-64 focus:ring-2 focus:ring-indigo-500 outline-none no-print"
+                className="campo md:w-64 no-print"
               />
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs md:text-sm">
+              <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                  <tr>
                     <th className="p-3">Cliente</th>
                     <th className="p-3">Teléfono</th>
                     <th className="p-3">Ventas Pendientes</th>
@@ -1716,7 +1697,7 @@ export default function App({ usuario, onSesionVencida }) {
                     <th className="p-3 text-right no-print">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody>
                   {cuentasVisibles.map(cuenta => {
                     const expandida = cuentaExpandida === cuenta.key;
                     return (
@@ -1731,7 +1712,7 @@ export default function App({ usuario, onSesionVencida }) {
                               {cuenta.nombre}
                             </button>
                             {!cuenta.cliente && (
-                              <span className="ml-6 inline-block mt-1 text-[10px] font-bold bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">SIN REGISTRAR</span>
+                              <span className="ml-6 mt-1 pastilla pastilla-neutra !text-[10px]">SIN REGISTRAR</span>
                             )}
                             {cuenta.cliente?.nota && <p className="ml-6 text-[11px] font-normal text-slate-400">{cuenta.cliente.nota}</p>}
                           </td>
@@ -1744,7 +1725,7 @@ export default function App({ usuario, onSesionVencida }) {
                           <td className="p-3 text-slate-500">{cuenta.ultimaFecha || '—'}</td>
                           <td className="p-3">
                             {cuenta.deuda > 0
-                              ? <span className="font-bold text-amber-700">${cuenta.deuda.toLocaleString()}</span>
+                              ? <span className="font-bold text-amber-700">{dinero(cuenta.deuda)}</span>
                               : <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Al día</span>}
                           </td>
                           <td className="p-3 text-right no-print">
@@ -1760,10 +1741,10 @@ export default function App({ usuario, onSesionVencida }) {
                               )}
                               {cuenta.cliente ? (
                                 <>
-                                  <button onClick={() => iniciarEdicionCliente(cuenta.cliente)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Editar cliente">
+                                  <button onClick={() => iniciarEdicionCliente(cuenta.cliente)} className="btn-icono" title="Editar cliente">
                                     <Edit2 size={16} />
                                   </button>
-                                  <button onClick={() => eliminarCliente(cuenta)} className="text-rose-500 hover:text-rose-700 p-1" title="Eliminar cliente">
+                                  <button onClick={() => eliminarCliente(cuenta)} className="btn-icono btn-icono-peligro" title="Eliminar cliente">
                                     <Trash2 size={16} />
                                   </button>
                                 </>
@@ -1771,7 +1752,7 @@ export default function App({ usuario, onSesionVencida }) {
                                 <button
                                   onClick={() => registrarDeudor(cuenta)}
                                   disabled={procesandoCuenta}
-                                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
+                                  className="btn btn-claro btn-sm"
                                   title="Registrar como cliente"
                                 >
                                   <UserPlus size={14} /> Registrar
@@ -1786,21 +1767,21 @@ export default function App({ usuario, onSesionVencida }) {
                             <td colSpan="6" className="p-4">
                               <div className="bg-white p-4 rounded-lg border border-amber-200 shadow-inner">
                                 <p className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
-                                  <Merge size={16} className="text-amber-600" />
+                                  <Merge size={16} />
                                   {cuenta.cliente ? `Fusionar "${cuenta.nombre}" con otro cliente` : `Asignar las ventas de "${cuenta.nombre}" a un cliente`}
                                 </p>
                                 <p className="text-xs text-slate-500 mb-3">
                                   {cuenta.cliente
                                     ? 'Úsalo si este cliente quedó registrado dos veces. Sus ventas y su deuda pasan al cliente que elijas y este registro se elimina.'
                                     : 'Úsalo si estas ventas son de un cliente que ya está registrado con otro nombre.'}
-                                  {' '}Se trasladarán <b>{ventasDeCuenta(cuenta).length} venta(s)</b> y una deuda de <b>${cuenta.deuda.toLocaleString()}</b>.
+                                  {' '}Se trasladarán <b>{ventasDeCuenta(cuenta).length} venta(s)</b> y una deuda de <b>{dinero(cuenta.deuda)}</b>.
                                 </p>
                                 <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                                   <label className="text-xs font-semibold text-slate-600">Pasar a:</label>
                                   <select
                                     value={fusionDestinoId}
                                     onChange={(e) => setFusionDestinoId(e.target.value)}
-                                    className="p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white sm:w-64"
+                                    className="campo sm:w-64"
                                   >
                                     <option value="">Elegir cliente...</option>
                                     {clientes.filter(c => c.id !== cuenta.cliente?.id).map(c => (
@@ -1810,13 +1791,13 @@ export default function App({ usuario, onSesionVencida }) {
                                   <button
                                     onClick={() => handleFusionar(cuenta)}
                                     disabled={!fusionDestinoId || procesandoCuenta}
-                                    className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-amber-700 transition shadow disabled:opacity-50"
+                                    className="btn btn-primario"
                                   >
                                     {cuenta.cliente ? 'Fusionar y eliminar duplicado' : 'Asignar ventas'}
                                   </button>
                                   <button
                                     onClick={() => setFusionCuentaKey(null)}
-                                    className="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
+                                    className="btn btn-claro"
                                   >
                                     Cancelar
                                   </button>
@@ -1841,7 +1822,7 @@ export default function App({ usuario, onSesionVencida }) {
                                         <select
                                           value={medioPagoAbono}
                                           onChange={(e) => setMedioPagoAbono(e.target.value)}
-                                          className="p-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                                          className="campo"
                                         >
                                           <option value="Efectivo">Efectivo</option>
                                           <option value="Transferencia">Transferencia</option>
@@ -1852,9 +1833,9 @@ export default function App({ usuario, onSesionVencida }) {
                                         <button
                                           onClick={() => handleSaldarTodo(cuenta)}
                                           disabled={procesandoCuenta}
-                                          className="flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-700 transition shadow disabled:opacity-50"
+                                          className="btn btn-exito btn-sm"
                                         >
-                                          <CheckCircle size={14} /> Saldar Todo (${cuenta.deuda.toLocaleString()})
+                                          <CheckCircle size={14} /> Saldar todo ({dinero(cuenta.deuda)})
                                         </button>
                                       </div>
                                     </div>
@@ -1871,11 +1852,11 @@ export default function App({ usuario, onSesionVencida }) {
                                               {v.variante && <span className="ml-2 text-slate-400">({v.variante})</span>}
                                             </div>
                                             <div className="flex items-center gap-3">
-                                              <span className="font-bold text-slate-900">${v.total.toLocaleString()}</span>
+                                              <span className="font-bold text-slate-900">{dinero(v.total)}</span>
                                               <button
                                                 onClick={() => handlePagarVenta(v)}
                                                 disabled={procesandoCuenta}
-                                                className="text-emerald-700 hover:underline font-semibold no-print disabled:opacity-50"
+                                                className="enlace no-print disabled:opacity-50"
                                               >
                                                 Pagar
                                               </button>
@@ -1909,75 +1890,32 @@ export default function App({ usuario, onSesionVencida }) {
       {/* ==================== PESTAÑA ESTADO DE CUENTA ==================== */}
       {pestana === 'estado_cuenta' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {/* Tarjeta de Efectivo Total en Caja (Corregida y limpia) */}
-            <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-xs font-bold tracking-wider uppercase opacity-80">Efectivo Total en Caja (Vivo)</h3>
-                  <p className="text-3xl font-extrabold mt-1">${efectivoTotalEnCaja.toLocaleString()}</p>
-                </div>
-                <div className="p-3 bg-white/10 rounded-xl">
-                  <Wallet className="w-6 h-6 text-white" />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Recuperación Reposiciones (Punto Cero)</h3>
-                  <p className={`text-3xl font-extrabold mt-1 ${estadoPuntoCeroReposicion >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    ${estadoPuntoCeroReposicion.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-2">
-                    {estadoPuntoCeroReposicion >= 0 ? 'Reposiciones cubiertas por completo.' : `Falta por recuperar $${Math.abs(estadoPuntoCeroReposicion).toLocaleString()} para quedar en $0.`}
-                  </p>
-                </div>
-                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-                  <RefreshCw className="w-6 h-6" />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Gastos Totales Registrados</h3>
-                  <p className="text-3xl font-extrabold text-rose-600 mt-1">${totalGastosRegistrados.toLocaleString()}</p>
-                  <p className="text-xs text-slate-500 mt-2">Incluye proveedores (${gastosEnReposiciones.toLocaleString()}) y otros egresos.</p>
-                </div>
-                <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
-                  <TrendingDown className="w-6 h-6" />
-                </div>
-              </div>
-            </div>
-
-            <button
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 md:gap-4">
+            <Kpi color="tinta" icono={<Wallet size={18} />} etiqueta="Efectivo en caja" valor={dinero(efectivoTotalEnCaja)} detalle="Base + ventas cobradas en efectivo" />
+            <Kpi
+              color="turquesa"
+              icono={<RefreshCw size={18} />}
+              etiqueta="Punto cero"
+              valor={dinero(estadoPuntoCeroReposicion)}
+              detalle={estadoPuntoCeroReposicion >= 0 ? 'Reposiciones cubiertas' : `Faltan ${dinero(Math.abs(estadoPuntoCeroReposicion))} por recuperar`}
+            />
+            <Kpi color="coral" icono={<TrendingDown size={18} />} etiqueta="Gastos" valor={dinero(totalGastosRegistrados)} detalle={`Proveedores: ${dinero(gastosEnReposiciones)}`} />
+            <Kpi
+              color="sol"
+              icono={<HandCoins size={18} />}
+              etiqueta="Por cobrar"
+              valor={dinero(totalPorCobrar)}
+              detalle={clientesConDeuda === 0 ? 'Nadie debe dinero' : `${clientesConDeuda} cliente(s) · Ver →`}
               onClick={() => setPestana('clientes')}
-              className="text-left bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-amber-300 transition"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">Por Cobrar (Fiados)</h3>
-                  <p className="text-3xl font-extrabold text-amber-600 mt-1">${totalPorCobrar.toLocaleString()}</p>
-                  <p className="text-xs text-slate-500 mt-2">
-                    {clientesConDeuda === 0 ? 'Nadie debe dinero.' : `${clientesConDeuda} cliente(s) con deuda. Ver en Clientes →`}
-                  </p>
-                </div>
-                <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
-                  <HandCoins className="w-6 h-6" />
-                </div>
-              </div>
-            </button>
+            />
           </div>
 
           {/* Ajustar efectivo base no registrado */}
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm no-print">
-            <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
-              <DollarSign size={18} className="text-emerald-600" /> Ajustar Efectivo Base No Registrado
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">Ingresa la cantidad de dinero acumulado físicamente que no se había registrado previamente.</p>
+          <Plegable
+            titulo="Efectivo base"
+            descripcion="Dinero físico en caja que no se había registrado"
+            icono={<Banknote size={18} />}
+          >
             {!puede('finanzas') && <AvisoSinPermiso accion="ajustar la caja" />}
             <form onSubmit={handleGuardarEfectivoBase} className="flex gap-3 items-center">
               <fieldset disabled={!puede('finanzas')} className="contents">
@@ -1986,54 +1924,56 @@ export default function App({ usuario, onSesionVencida }) {
                 placeholder={`Actual: ${cajaInicial}`}
                 value={nuevoEfectivoBaseInput}
                 onChange={(e) => setNuevoEfectivoBaseInput(e.target.value)}
-                className="p-2 border border-slate-300 rounded-lg text-sm w-48 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="campo w-48"
               />
               <button
                 type="submit"
-                className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition flex items-center gap-2 shadow"
+                className="btn btn-exito"
               >
                 <Save size={16} /> Guardar Base
               </button>
               </fieldset>
             </form>
-          </div>
+          </Plegable>
 
           {/* Registro de Gastos y Proveedores */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-base font-bold text-slate-800 mb-4">
-              {editandoGastoId ? 'Editar Gasto / Proveedor' : 'Registrar Nuevo Gasto o Compra a Proveedor'}
-            </h2>
+          <Plegable
+            titulo={editandoGastoId ? 'Editar gasto' : 'Registrar gasto o compra'}
+            descripcion="Proveedores, compras de productos y otros egresos"
+            icono={<Receipt size={18} />}
+            forzarAbierto={!!editandoGastoId}
+          >
             {!puede('finanzas') && <AvisoSinPermiso accion="registrar gastos" />}
-            <form onSubmit={handleAgregarOEditarGasto} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-6">
+            <form onSubmit={handleAgregarOEditarGasto} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               <fieldset disabled={!puede('finanzas')} className="contents">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Concepto</label>
+                <label className="etiqueta">Concepto</label>
                 <input
                   type="text"
                   placeholder="Ej. Compra de Limones, Transporte..."
                   value={formGasto.concepto}
                   onChange={(e) => setFormGasto({ ...formGasto, concepto: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                   required
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Monto ($)</label>
+                <label className="etiqueta">Monto ($)</label>
                 <input
                   type="number"
                   placeholder="Ej. 15000"
                   value={formGasto.monto}
                   onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                   required
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Gasto</label>
+                <label className="etiqueta">Tipo de Gasto</label>
                 <select
                   value={formGasto.tipo}
                   onChange={(e) => setFormGasto({ ...formGasto, tipo: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  className="campo"
                 >
                   <option value="Proveedor">Proveedor / Reposición</option>
                   <option value="Compra Productos">Compra Productos</option>
@@ -2044,7 +1984,7 @@ export default function App({ usuario, onSesionVencida }) {
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow flex-1"
+                  className="btn btn-primario flex-1"
                 >
                   {editandoGastoId ? 'Actualizar' : 'Agregar Gasto'}
                 </button>
@@ -2052,7 +1992,7 @@ export default function App({ usuario, onSesionVencida }) {
                   <button
                     type="button"
                     onClick={cancelarEdicionGasto}
-                    className="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
+                    className="btn btn-claro"
                   >
                     Cancelar
                   </button>
@@ -2060,12 +2000,16 @@ export default function App({ usuario, onSesionVencida }) {
               </div>
               </fieldset>
             </form>
+          </Plegable>
 
-            <h3 className="text-sm font-bold text-slate-700 mb-3">Historial de Gastos y Egresos</h3>
+          <div className="panel overflow-hidden">
+            <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2]">
+              <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><ClipboardList size={18} /> Historial de gastos</h2>
+            </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs md:text-sm">
+              <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                  <tr>
                     <th className="p-3">Fecha</th>
                     <th className="p-3">Concepto</th>
                     <th className="p-3">Tipo</th>
@@ -2073,18 +2017,18 @@ export default function App({ usuario, onSesionVencida }) {
                     <th className="p-3 text-right">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody>
                   {gastos.map((g) => (
                     <tr key={g.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 text-slate-500">{g.fecha}<FirmaCambio item={g} /></td>
+                      <td className="p-3 text-slate-500 whitespace-nowrap">{g.fecha}<FirmaCambio item={g} /></td>
                       <td className="p-3 font-medium text-slate-800">{g.concepto}</td>
-                      <td className="p-3"><span className="px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-600">{g.tipo}</span></td>
-                      <td className="p-3 font-bold text-rose-600">${g.monto.toLocaleString()}</td>
+                      <td className="p-3"><span className="pastilla pastilla-neutra">{g.tipo}</span></td>
+                      <td className="p-3 font-bold text-rose-600">{dinero(g.monto)}</td>
                       <td className="p-3 text-right flex justify-end gap-2">
-                        <button onClick={() => iniciarEdicionGasto(g)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Editar gasto">
+                        <button onClick={() => iniciarEdicionGasto(g)} className="btn-icono" title="Editar gasto">
                           <Edit2 size={16} />
                         </button>
-                        <button onClick={() => eliminarGasto(g.id)} className="text-rose-500 hover:text-rose-700 p-1" title="Eliminar gasto">
+                        <button onClick={() => eliminarGasto(g.id)} className="btn-icono btn-icono-peligro" title="Eliminar gasto">
                           <Trash2 size={16} />
                         </button>
                       </td>
@@ -2105,55 +2049,56 @@ export default function App({ usuario, onSesionVencida }) {
       {/* ==================== PESTAÑA INVENTARIO ==================== */}
       {pestana === 'inventario' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm no-print">
-            <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Package size={18} className="text-indigo-600" />
-              {editandoProductoId ? 'Editar Producto Base' : 'Añadir Nuevo Producto o Lote (FEFO)'}
-            </h2>
+          <Plegable
+            titulo={editandoProductoId ? 'Editar producto' : 'Nuevo producto o lote'}
+            descripcion="Precio, categoría y lotes con fecha de vencimiento"
+            icono={<PackagePlus size={18} />}
+            forzarAbierto={!!editandoProductoId}
+          >
             {!puede('inventario') && <AvisoSinPermiso accion="modificar el inventario" />}
             <form onSubmit={handleGuardarProducto} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
               <fieldset disabled={!puede('inventario')} className="contents">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Producto</label>
+                <label className="etiqueta">Nombre del Producto</label>
                 <input
                   type="text"
                   placeholder="Ej. Limonada Natural"
                   value={formProducto.nombre}
                   onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                   required={!editandoProductoId}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Unitario ($)</label>
+                <label className="etiqueta">Costo Unitario ($)</label>
                 <input
                   type="number"
                   step="0.01"
                   placeholder="Ej. 1000"
                   value={formProducto.costo}
                   onChange={(e) => setFormProducto({ ...formProducto, costo: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                   required={!editandoProductoId}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Precio de Venta ($)</label>
+                <label className="etiqueta">Precio de Venta ($)</label>
                 <input
                   type="number"
                   step="0.01"
                   placeholder="Ej. 2500"
                   value={formProducto.precio}
                   onChange={(e) => setFormProducto({ ...formProducto, precio: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                   required={!editandoProductoId}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Categoría</label>
+                <label className="etiqueta">Categoría</label>
                 <select
                   value={formProducto.categoria}
                   onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  className="campo"
                 >
                   <option value="">Sin categoría</option>
                   {categorias.map(c => (
@@ -2163,39 +2108,39 @@ export default function App({ usuario, onSesionVencida }) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Variante / Sabor del Lote</label>
+                <label className="etiqueta">Variante / Sabor del Lote</label>
                 <input
                   type="text"
                   placeholder="Ej. Botella 500ml, Frutos Rojos..."
                   value={formProducto.variante}
                   onChange={(e) => setFormProducto({ ...formProducto, variante: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad del Lote</label>
+                <label className="etiqueta">Cantidad del Lote</label>
                 <input
                   type="number"
                   placeholder="Ej. 20"
                   value={formProducto.cantidad}
                   onChange={(e) => setFormProducto({ ...formProducto, cantidad: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="campo"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de Vencimiento</label>
+                <label className="etiqueta">Fecha de Vencimiento</label>
                 <input
                   type="date"
                   value={formProducto.vencimiento}
                   onChange={(e) => setFormProducto({ ...formProducto, vencimiento: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  className="campo"
                 />
               </div>
 
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow flex-1"
+                  className="btn btn-primario flex-1"
                 >
                   {editandoProductoId ? 'Guardar Cambios' : 'Añadir al Inventario'}
                 </button>
@@ -2203,7 +2148,7 @@ export default function App({ usuario, onSesionVencida }) {
                   <button
                     type="button"
                     onClick={cancelarEdicion}
-                    className="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
+                    className="btn btn-claro"
                   >
                     Cancelar
                   </button>
@@ -2211,16 +2156,19 @@ export default function App({ usuario, onSesionVencida }) {
               </div>
               </fieldset>
             </form>
-          </div>
+          </Plegable>
 
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-200">
-              <h2 className="text-base font-bold text-slate-800">Inventario por Lotes (Control FEFO)</h2>
+          <div className="panel overflow-hidden">
+            <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2]">
+              <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
+                <Boxes size={18} /> Inventario por lotes
+                <span className="pastilla pastilla-info" title="Se vende primero lo que vence antes">FEFO</span>
+              </h2>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs md:text-sm">
+              <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                  <tr>
                     <th className="p-3">Producto</th>
                     <th className="p-3">Categoría</th>
                     <th className="p-3">Costo</th>
@@ -2230,7 +2178,7 @@ export default function App({ usuario, onSesionVencida }) {
                     <th className="p-3 text-right no-print">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody>
                   {productos.map((p) => {
                     const stockTotal = getStockTotalProducto(p);
                     const proxVenc = getProximoVencimientoProducto(p);
@@ -2251,21 +2199,21 @@ export default function App({ usuario, onSesionVencida }) {
                             <FirmaCambio item={p} />
                           </td>
                           <td className="p-3 text-slate-500">{p.categoria || 'Sin categoría'}</td>
-                          <td className="p-3">${p.costo}</td>
-                          <td className="p-3 font-bold text-slate-900">${p.precio}</td>
+                          <td className="p-3">{dinero(p.costo)}</td>
+                          <td className="p-3 font-bold text-slate-900">{dinero(p.precio)}</td>
                           <td className="p-3">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                              stockTotal <= 0 ? 'bg-rose-100 text-rose-700' : stockTotal <= 3 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                            <span className={`pastilla ${
+                              stockTotal <= 0 ? 'pastilla-peligro' : stockTotal <= 3 ? 'pastilla-pendiente' : 'pastilla-ok'
                             }`}>
                               {stockTotal} un.
                             </span>
                           </td>
                           <td className="p-3 text-slate-600">{proxVenc}</td>
                           <td className="p-3 text-right no-print flex justify-end gap-2">
-                            <button onClick={() => iniciarEdicionProductoBase(p)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Editar datos base">
+                            <button onClick={() => iniciarEdicionProductoBase(p)} className="btn-icono" title="Editar datos base">
                               <Edit2 size={16} />
                             </button>
-                            <button onClick={() => eliminarProductoCompleto(p.id)} className="text-rose-500 hover:text-rose-700 p-1" title="Eliminar producto completo">
+                            <button onClick={() => eliminarProductoCompleto(p.id)} className="btn-icono btn-icono-peligro" title="Eliminar producto completo">
                               <Trash2 size={16} />
                             </button>
                           </td>
@@ -2284,8 +2232,8 @@ export default function App({ usuario, onSesionVencida }) {
                                         <span className="text-slate-500 ml-2">Vencimiento: {lote.vencimiento}</span>
                                       </div>
                                       <div className="flex gap-2 no-print">
-                                        <button onClick={() => handleEditarLote(p.id, lote.id)} className="text-indigo-600 hover:underline">Editar</button>
-                                        <button onClick={() => handleEliminarLote(p.id, lote.id)} className="text-rose-600 hover:underline">Eliminar</button>
+                                        <button onClick={() => handleEditarLote(p.id, lote.id)} className="enlace">Editar</button>
+                                        <button onClick={() => handleEliminarLote(p.id, lote.id)} className="enlace enlace-peligro">Eliminar</button>
                                       </div>
                                     </div>
                                   ))}
@@ -2314,8 +2262,8 @@ export default function App({ usuario, onSesionVencida }) {
 
       {/* ==================== PESTAÑA CATEGORÍAS ==================== */}
       {pestana === 'categorias' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-xl mx-auto">
-          <h2 className="text-base font-bold text-slate-800 mb-4">Gestión de Categorías</h2>
+        <div className="panel p-6 max-w-xl mx-auto">
+          <h2 className="text-base font-bold text-tinta mb-4 flex items-center gap-2.5"><Tag size={18} /> Categorías</h2>
           {!puede('inventario') && <AvisoSinPermiso accion="crear categorías" />}
           <form onSubmit={handleAgregarCategoria} className="flex gap-3 mb-6">
             <fieldset disabled={!puede('inventario')} className="contents">
@@ -2324,9 +2272,9 @@ export default function App({ usuario, onSesionVencida }) {
               placeholder="Nueva categoría..."
               value={nuevaCategoria}
               onChange={(e) => setNuevaCategoria(e.target.value)}
-              className="flex-1 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              className="campo flex-1"
             />
-            <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow">
+            <button type="submit" className="btn btn-primario">
               Agregar
             </button>
             </fieldset>
@@ -2336,7 +2284,7 @@ export default function App({ usuario, onSesionVencida }) {
             {categorias.map(c => (
               <div key={c.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <span className="text-sm font-medium text-slate-800">{c.nombre}</span>
-                <button onClick={() => eliminarCategoria(c.id)} className="text-rose-500 hover:text-rose-700 p-1">
+                <button onClick={() => eliminarCategoria(c.id)} className="btn-icono btn-icono-peligro">
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -2350,7 +2298,7 @@ export default function App({ usuario, onSesionVencida }) {
 
       {/* ==================== PESTAÑA CARTA ==================== */}
       {pestana === 'catalogo' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-2xl mx-auto text-center">
+        <div className="panel p-6 max-w-2xl mx-auto text-center">
           <BookOpen size={48} className="mx-auto text-indigo-600 mb-3" />
           <h2 className="text-xl font-bold text-slate-900 mb-1">Carta y Menú Público</h2>
           <p className="text-sm text-slate-500 mb-6">Vista previa rápida de los productos disponibles para ofrecer a los clientes.</p>
@@ -2363,7 +2311,7 @@ export default function App({ usuario, onSesionVencida }) {
                 <div key={p.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50">
                   <div className="flex justify-between items-start mb-1">
                     <h3 className="font-bold text-slate-800">{p.nombre}</h3>
-                    <span className="font-extrabold text-indigo-600">${p.precio}</span>
+                    <span className="font-extrabold text-tinta">{dinero(p.precio)}</span>
                   </div>
                   <p className="text-xs text-slate-500">{p.categoria || 'General'} — Stock: {stockTotal} un.</p>
                 </div>

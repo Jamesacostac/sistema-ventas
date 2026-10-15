@@ -97,10 +97,10 @@ export default function Verificacion({ usuario, onVerificada }) {
 
         {fase === 'error' && (
           <div className="space-y-4">
-            <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</p>
+            <p className="btn btn-peligro btn-sm">{error}</p>
             <button
               onClick={comprobar}
-              className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow"
+              className="btn btn-primario w-full"
             >
               <RefreshCw size={16} /> Reintentar
             </button>
@@ -121,7 +121,7 @@ export default function Verificacion({ usuario, onVerificada }) {
               placeholder="000000"
               value={codigo}
               onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))}
-              className="w-full p-3 border border-slate-300 rounded-lg text-2xl text-center tracking-[0.5em] font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+              className="campo text-2xl text-center tracking-[0.5em]"
               autoFocus
             />
 
@@ -138,13 +138,13 @@ export default function Verificacion({ usuario, onVerificada }) {
               </span>
             </label>
 
-            {aviso && !error && <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2">{aviso}</p>}
-            {error && <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</p>}
+            {aviso && !error && <p className="aviso aviso-ok">{aviso}</p>}
+            {error && <p className="btn btn-peligro btn-sm">{error}</p>}
 
             <button
               type="submit"
               disabled={verificando || codigo.length !== 6}
-              className="marca-boton w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm disabled:opacity-50"
+              className="btn btn-primario w-full"
             >
               <ShieldCheck size={16} /> {verificando ? 'Verificando...' : 'Verificar'}
             </button>

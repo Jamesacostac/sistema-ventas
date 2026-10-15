@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { Users, UserPlus, Trash2, Eye, EyeOff, Crown, ShieldCheck, Save, X } from 'lucide-react';
+import { Handshake, UserPlus, Trash2, Eye, EyeOff, Crown, ShieldCheck, Save, X } from 'lucide-react';
 import { db } from './firebase';
 import { llamarServidor } from './servidor';
 import { PERMISOS, RANGOS, nombreRango } from './auditoria';
@@ -20,7 +20,7 @@ function EditorPermisos({ permisos, onChange, puedeOtorgarSocios }) {
             key={r.nombre}
             type="button"
             onClick={() => onChange(aMapa(r.permisos))}
-            className="text-xs font-semibold px-2.5 py-1 rounded-full border border-slate-300 hover:border-indigo-400 hover:text-indigo-700 transition"
+            className="btn btn-claro btn-sm"
           >
             {r.nombre}
           </button>
@@ -129,7 +129,7 @@ export default function Socios({ usuario }) {
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       {soyGestor ? (
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="panel p-6">
           <h2 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
             <UserPlus size={18} className="text-indigo-600" /> Agregar socio
           </h2>
@@ -137,7 +137,7 @@ export default function Socios({ usuario }) {
           <form onSubmit={handleCrear} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
+                <label className="etiqueta">Nombre</label>
                 <input
                   type="text"
                   required
@@ -148,7 +148,7 @@ export default function Socios({ usuario }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Correo</label>
+                <label className="etiqueta">Correo</label>
                 <input
                   type="email"
                   required
@@ -158,7 +158,7 @@ export default function Socios({ usuario }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña (mín. 8)</label>
+                <label className="etiqueta">Contraseña (mín. 8)</label>
                 <div className="relative">
                   <input
                     type={verClave ? 'text' : 'password'}
@@ -188,7 +188,7 @@ export default function Socios({ usuario }) {
             <button
               type="submit"
               disabled={guardando}
-              className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow disabled:opacity-50"
+              className="btn btn-primario"
             >
               <UserPlus size={16} /> {guardando ? 'Creando...' : 'Agregar socio'}
             </button>
@@ -207,14 +207,14 @@ export default function Socios({ usuario }) {
         </p>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="panel overflow-hidden">
         <div className="p-4 border-b border-slate-200">
           <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-            <Users size={18} className="text-indigo-600" /> Socios y rangos ({socios.length})
+            <Handshake size={18} /> Socios y rangos ({socios.length})
           </h2>
           <p className="text-xs text-slate-500 mt-1">Todos los cambios de cada socio, incluido el titular, quedan en la pestaña Historial.</p>
         </div>
-        <div className="divide-y divide-slate-200">
+        <div>
           {socios.map(s => {
             const editable = puedoModificar(s);
             const editando = editandoId === s.id;
@@ -225,9 +225,9 @@ export default function Socios({ usuario }) {
                     <p className="font-semibold text-slate-800 flex items-center gap-2 flex-wrap">
                       {s.rol === 'principal' && <Crown size={14} className="text-amber-500" />}
                       {s.nombre || 'Sin nombre'}
-                      {s.id === usuario.uid && <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">TÚ</span>}
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        s.rol === 'principal' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+                      {s.id === usuario.uid && <span className="pastilla pastilla-info !text-[10px]">TÚ</span>}
+                      <span className={`pastilla !text-[10px] ${
+                        s.rol === 'principal' ? 'pastilla-pendiente' : 'pastilla-neutra'
                       }`}>
                         {nombreRango(s).toUpperCase()}
                       </span>
@@ -243,12 +243,12 @@ export default function Socios({ usuario }) {
                     <div className="flex gap-2 shrink-0">
                       <button
                         onClick={() => abrirEdicion(s)}
-                        className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 p-1"
+                        className="btn btn-claro btn-sm"
                         title="Cambiar rango"
                       >
                         <ShieldCheck size={16} /> Rango
                       </button>
-                      <button onClick={() => handleQuitar(s)} className="text-rose-500 hover:text-rose-700 p-1" title="Quitar socio">
+                      <button onClick={() => handleQuitar(s)} className="btn-icono btn-icono-peligro" title="Quitar socio">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -262,13 +262,13 @@ export default function Socios({ usuario }) {
                       <button
                         onClick={() => handleGuardarPermisos(s)}
                         disabled={guardando}
-                        className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow disabled:opacity-50"
+                        className="btn btn-primario"
                       >
                         <Save size={16} /> Guardar rango
                       </button>
                       <button
                         onClick={() => setEditandoId(null)}
-                        className="flex items-center gap-2 bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300 transition"
+                        className="btn btn-claro"
                       >
                         <X size={16} /> Cancelar
                       </button>
