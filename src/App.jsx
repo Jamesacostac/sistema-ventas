@@ -9,7 +9,7 @@ import Perfil from './Perfil';
 import Socios from './Socios';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
-import { MenuDesplegable, MenuItem, MenuSeparador, MenuTitulo, Plegable } from './ui';
+import { MenuDesplegable, MenuItem, MenuSeparador, MenuTitulo, Plegable, usePantalla } from './ui';
 import { useLectorCodigos } from './lectorCodigos';
 // La cámara y las etiquetas usan librerías pesadas: se cargan solo cuando se abren
 const Etiquetas = lazy(() => import('./Etiquetas'));
@@ -19,7 +19,7 @@ import {
   CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
   HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
-  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X
 } from 'lucide-react';
 
 // Fecha AAAA-MM-DD con la hora de Colombia. Antes se usaba la hora UTC y lo que se
@@ -38,16 +38,16 @@ const dinero = (n) => {
 };
 
 // Indicador en bloque de color (estilo de la marca)
-const Kpi = ({ color, icono, etiqueta, valor, detalle, onClick }) => {
+const Kpi = ({ color, icono, etiqueta, valor, detalle, onClick, clase = '' }) => {
   const Contenedor = onClick ? 'button' : 'div';
   return (
-    <Contenedor onClick={onClick} className={`kpi kpi-${color} p-4 text-left print-card ${onClick ? 'hover:-translate-y-0.5 transition' : ''}`}>
+    <Contenedor onClick={onClick} className={`${clase} kpi kpi-${color} p-3 sm:p-4 text-left print-card ${onClick ? 'hover:-translate-y-0.5 transition' : ''}`}>
       <div className="flex justify-between items-start gap-2">
         <p className="kpi-etiqueta">{etiqueta}</p>
         <span className="kpi-icono">{icono}</span>
       </div>
-      <p className="kpi-valor text-2xl md:text-[1.75rem] leading-tight mt-1">{valor}</p>
-      {detalle && <p className="text-xs mt-1 font-medium opacity-80">{detalle}</p>}
+      <p className="kpi-valor text-xl sm:text-2xl md:text-[1.75rem] leading-tight mt-1">{valor}</p>
+      {detalle && <p className="text-[11px] sm:text-xs mt-1 font-medium opacity-80">{detalle}</p>}
     </Contenedor>
   );
 };
@@ -560,6 +560,20 @@ export default function App({ usuario, onSesionVencida }) {
 
   // ==================== CARRITO DE COMPRAS ====================
   const [carrito, setCarrito] = useState([]);
+  // En PC (≥ 1536 px) el pedido es una columna fija; en celular, tablet y portátil es una ventana flotante
+  const esPC = usePantalla('(min-width: 1536px)');
+  const [pedidoAbierto, setPedidoAbierto] = useState(false);
+  useEffect(() => {
+    if (!pedidoAbierto || esPC) return;
+    const anterior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const cerrarEscape = (e) => { if (e.key === 'Escape') setPedidoAbierto(false); };
+    window.addEventListener('keydown', cerrarEscape);
+    return () => {
+      document.body.style.overflow = anterior;
+      window.removeEventListener('keydown', cerrarEscape);
+    };
+  }, [pedidoAbierto, esPC]);
   const [guardandoVenta, setGuardandoVenta] = useState(false);
 
   // Descuenta una cantidad de los lotes por FEFO (primero los que vencen antes).
@@ -759,6 +773,7 @@ export default function App({ usuario, onSesionVencida }) {
       });
 
       setCarrito([]);
+      setPedidoAbierto(false);
       setFormVenta({ cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: '' });
     } catch (error) {
       alert("Error al registrar la venta: " + error.message);
@@ -1348,7 +1363,7 @@ export default function App({ usuario, onSesionVencida }) {
   }
 
   return (
-    <div className="p-4 md:p-6 bg-papel min-h-screen text-tinta font-sans print:p-0 print:bg-white">
+    <div className="px-3 pt-3 pb-24 sm:px-4 sm:pt-4 md:px-6 md:pt-6 2xl:pb-6 bg-papel min-h-screen text-tinta font-sans print:p-0 print:bg-white">
       <style>{`
         @media print {
           @page { size: letter portrait; margin: 1cm; }
@@ -1363,19 +1378,19 @@ export default function App({ usuario, onSesionVencida }) {
 
       {/* Encabezado Principal */}
       <header className="marca-cabecera mb-6 rounded-2xl print-card print:mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
-          <div className="flex items-center gap-3">
-            <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-12 w-12 md:h-14 md:w-14 shrink-0" />
-            <div>
-              <p className="marca-eyebrow text-tinta/80">Tazón para Dos · Comestibles</p>
-              <h1 className="marca-titular text-xl md:text-2xl text-tinta leading-tight">Ventas y Finanzas</h1>
-              <p className="text-xs md:text-sm text-tinta/80 font-medium first-letter:uppercase">
+        <div className="flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 shrink-0" />
+            <div className="min-w-0">
+              <p className="marca-eyebrow text-tinta/80 hidden sm:block">Tazón para Dos · Comestibles</p>
+              <h1 className="marca-titular text-base sm:text-xl md:text-2xl text-tinta leading-tight truncate">Ventas y Finanzas</h1>
+              <p className="text-[11px] sm:text-xs md:text-sm text-tinta/80 font-medium first-letter:uppercase truncate">
                 {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 no-print">
+          <div className="flex items-center gap-1.5 sm:gap-2 no-print shrink-0">
             <MenuDesplegable
               etiqueta={<span className="hidden sm:inline">Telegram</span>}
               icono={<Send size={16} />}
@@ -1392,7 +1407,7 @@ export default function App({ usuario, onSesionVencida }) {
             </MenuDesplegable>
 
             <MenuDesplegable
-              etiqueta={<span className="max-w-[9rem] truncate">{perfil?.nombre?.split(' ')[0] || usuario?.displayName?.split(' ')[0] || 'Mi cuenta'}</span>}
+              etiqueta={<span className="hidden sm:inline max-w-[9rem] truncate">{perfil?.nombre?.split(' ')[0] || usuario?.displayName?.split(' ')[0] || 'Mi cuenta'}</span>}
               icono={<UserCircle size={16} />}
               alinear="derecha"
               claseBoton="btn btn-oscuro btn-sm"
@@ -1410,7 +1425,7 @@ export default function App({ usuario, onSesionVencida }) {
         </div>
 
         {/* Navegación principal */}
-        <nav className="no-print mx-3 mb-3 flex flex-wrap items-center justify-center gap-1 bg-papel p-1.5 rounded-2xl border-2 border-tinta">
+        <nav className="no-print mx-2 sm:mx-3 mb-2 sm:mb-3 flex flex-nowrap items-center justify-start md:justify-center gap-1 overflow-x-auto sin-scrollbar bg-papel p-1.5 rounded-2xl border-2 border-tinta">
           <button onClick={() => setPestana('ventas')} className={`pestana ${pestana === 'ventas' ? 'pestana-activa' : ''}`}>
             <ShoppingCart size={16} /> Ventas
           </button>
@@ -1492,105 +1507,9 @@ export default function App({ usuario, onSesionVencida }) {
         const deudaCliente = clienteSeleccionado ? (cuentasClientes.find(cc => cc.cliente.id === clienteSeleccionado.id)?.deuda || 0) : 0;
         const puedeVender = puede('ventas');
 
-        return (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 print:gap-2 print:mb-4">
-            <Kpi color="sol" icono={<Banknote size={18} />} etiqueta="Ventas pagadas" valor={dinero(totalIngresosDia)} detalle={`${ventasPagadas.length} venta(s)`} />
-            <Kpi color="turquesa" icono={<RefreshCw size={18} />} etiqueta="Fondo reposición" valor={dinero(totalReposicionDia)} detalle="Costo de lo vendido" />
-            <Kpi color="verde" icono={<PiggyBank size={18} />} etiqueta="Ahorro mejoras" valor={dinero(fondoAhorro)} detalle="15 % de la ganancia" />
-            <Kpi color="coral" icono={<Handshake size={18} />} etiqueta="Pago por socio" valor={dinero(salarioPorSocio)} detalle="Ganancia neta ÷ 3" />
-          </div>
-
-          {!puedeVender && <AvisoSinPermiso accion="registrar ventas" />}
-
-          {totalFechasCorridas > 0 && puede('ventas_editar') && puede('finanzas') && (
-            <div className="aviso aviso-info mb-6 flex-wrap items-center justify-between no-print">
-              <span>
-                <b>Hay {totalFechasCorridas} registro(s) con la fecha corrida un día</b> (hechos entre las 7 p. m. y la medianoche).
-                {' '}Se pueden corregir con la hora exacta en que se registraron.
-              </span>
-              <button onClick={handleCorregirFechas} disabled={corrigiendoFechas} className="btn btn-oscuro btn-sm">
-                {corrigiendoFechas ? 'Corrigiendo...' : 'Corregir fechas'}
-              </button>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-6 mb-6 items-start no-print">
-            {/* ---------- Catálogo ---------- */}
-            <section className="panel p-4 md:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
-                  <Store size={18} /> Productos
-                </h2>
-                <div className="flex w-full sm:w-auto gap-2">
-                  <div className="relative flex-1 sm:w-64">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gris-calido" />
-                    <input
-                      type="search"
-                      placeholder="Buscar o escribir código..."
-                      value={busquedaProducto}
-                      onChange={(e) => setBusquedaProducto(e.target.value)}
-                      onKeyDown={(e) => {
-                        // Un lector de códigos escribe aquí y termina con Enter
-                        if (e.key === 'Enter' && /^\d{6,}$/.test(busquedaProducto.trim())) {
-                          e.preventDefault();
-                          venderPorCodigo(busquedaProducto);
-                          setBusquedaProducto('');
-                        }
-                      }}
-                      className="campo pl-9"
-                    />
-                  </div>
-                  <button onClick={() => setEscaner('venta')} disabled={!puedeVender} className="btn btn-oscuro shrink-0" title="Escanear con la cámara">
-                    <ScanBarcode size={16} /> <span className="hidden md:inline">Escanear</span>
-                  </button>
-                </div>
-              </div>
-
-              {categoriasVenta.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
-                  <button onClick={() => setCategoriaVenta('')} className={`chip ${!categoriaVenta ? 'chip-activo' : ''}`}>Todas</button>
-                  {categoriasVenta.map(c => (
-                    <button key={c} onClick={() => setCategoriaVenta(c)} className={`chip ${categoriaVenta === c ? 'chip-activo' : ''}`}>{c}</button>
-                  ))}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 pt-2">
-                {catalogo.map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => agregarProducto(p)}
-                    disabled={!puedeVender || p.disponible <= 0}
-                    className={`producto-tile ${p.enCarrito > 0 ? 'producto-tile-en-carrito' : ''}`}
-                    title={p.disponible <= 0 ? 'Sin stock disponible' : 'Agregar al pedido'}
-                  >
-                    {p.enCarrito > 0 && <span className="producto-cantidad">{p.enCarrito}</span>}
-                    <span>
-                      <span className="block font-bold text-sm leading-snug">{p.nombre}</span>
-                      <span className="block text-[11px] text-gris-calido">{p.categoria || 'Sin categoría'}</span>
-                    </span>
-                    <span className="flex flex-wrap items-end justify-between gap-x-2 gap-y-1.5">
-                      <span className="kpi-valor text-lg leading-none">
-                        {p.precio === 0 ? <span className="flex items-center gap-1 text-sm"><Gift size={14} /> Regalo</span> : dinero(p.precio)}
-                      </span>
-                      <span className={`pastilla !text-[10px] ${p.disponible <= 0 ? (p.enCarrito > 0 ? 'pastilla-pendiente' : 'pastilla-peligro') : p.disponible <= 3 ? 'pastilla-pendiente' : 'pastilla-neutra'}`}>
-                        {p.disponible <= 0 ? (p.enCarrito > 0 ? 'Todo en pedido' : 'Agotado') : `${p.disponible} disp.`}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              {catalogo.length === 0 && (
-                <div className="text-center py-10 text-sm text-gris-calido">
-                  <PackageX size={28} className="mx-auto mb-2 opacity-60" />
-                  {productos.length === 0 ? 'Todavía no hay productos. Agrégalos en Inventario.' : 'Ningún producto coincide con la búsqueda.'}
-                </div>
-              )}
-            </section>
-
-            {/* ---------- Pedido actual ---------- */}
-            <aside className="panel p-4 md:p-5 lg:sticky lg:top-4">
+        // Contenido del pedido (columna en PC, ventana flotante en las demás pantallas)
+        const contenidoPedido = (
+          <>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
                   <ShoppingCart size={18} /> Pedido
@@ -1708,8 +1627,146 @@ export default function App({ usuario, onSesionVencida }) {
                   ? 'Registrando...'
                   : formVenta.pagado ? <><CheckCircle size={18} /> Cobrar {dinero(totalCarrito)}</> : <><HandCoins size={18} /> Registrar fiado</>}
               </button>
-            </aside>
+          </>
+        );
+
+        return (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 print:gap-2 print:mb-4">
+            <Kpi color="sol" icono={<Banknote size={18} />} etiqueta="Ventas pagadas" valor={dinero(totalIngresosDia)} detalle={`${ventasPagadas.length} venta(s)`} />
+            <Kpi color="turquesa" icono={<RefreshCw size={18} />} etiqueta="Fondo reposición" valor={dinero(totalReposicionDia)} detalle="Costo de lo vendido" />
+            <Kpi color="verde" icono={<PiggyBank size={18} />} etiqueta="Ahorro mejoras" valor={dinero(fondoAhorro)} detalle="15 % de la ganancia" />
+            <Kpi color="coral" icono={<Handshake size={18} />} etiqueta="Pago por socio" valor={dinero(salarioPorSocio)} detalle="Ganancia neta ÷ 3" />
           </div>
+
+          {!puedeVender && <AvisoSinPermiso accion="registrar ventas" />}
+
+          {totalFechasCorridas > 0 && puede('ventas_editar') && puede('finanzas') && (
+            <div className="aviso aviso-info mb-6 flex-wrap items-center justify-between no-print">
+              <span>
+                <b>Hay {totalFechasCorridas} registro(s) con la fecha corrida un día</b> (hechos entre las 7 p. m. y la medianoche).
+                {' '}Se pueden corregir con la hora exacta en que se registraron.
+              </span>
+              <button onClick={handleCorregirFechas} disabled={corrigiendoFechas} className="btn btn-oscuro btn-sm">
+                {corrigiendoFechas ? 'Corrigiendo...' : 'Corregir fechas'}
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_400px] gap-6 mb-6 items-start no-print">
+            {/* ---------- Catálogo ---------- */}
+            <section className="panel p-4 md:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
+                  <Store size={18} /> Productos
+                </h2>
+                <div className="flex w-full sm:w-auto gap-2">
+                  <div className="relative flex-1 sm:w-64">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gris-calido" />
+                    <input
+                      type="search"
+                      placeholder="Buscar o escribir código..."
+                      value={busquedaProducto}
+                      onChange={(e) => setBusquedaProducto(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Un lector de códigos escribe aquí y termina con Enter
+                        if (e.key === 'Enter' && /^\d{6,}$/.test(busquedaProducto.trim())) {
+                          e.preventDefault();
+                          venderPorCodigo(busquedaProducto);
+                          setBusquedaProducto('');
+                        }
+                      }}
+                      className="campo pl-9"
+                    />
+                  </div>
+                  <button onClick={() => setEscaner('venta')} disabled={!puedeVender} className="btn btn-oscuro shrink-0" title="Escanear con la cámara">
+                    <ScanBarcode size={16} /> <span className="hidden md:inline">Escanear</span>
+                  </button>
+                </div>
+              </div>
+
+              {categoriasVenta.length > 1 && (
+                <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
+                  <button onClick={() => setCategoriaVenta('')} className={`chip ${!categoriaVenta ? 'chip-activo' : ''}`}>Todas</button>
+                  {categoriasVenta.map(c => (
+                    <button key={c} onClick={() => setCategoriaVenta(c)} className={`chip ${categoriaVenta === c ? 'chip-activo' : ''}`}>{c}</button>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 pt-2">
+                {catalogo.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => agregarProducto(p)}
+                    disabled={!puedeVender || p.disponible <= 0}
+                    className={`producto-tile ${p.enCarrito > 0 ? 'producto-tile-en-carrito' : ''}`}
+                    title={p.disponible <= 0 ? 'Sin stock disponible' : 'Agregar al pedido'}
+                  >
+                    {p.enCarrito > 0 && <span className="producto-cantidad">{p.enCarrito}</span>}
+                    <span>
+                      <span className="block font-bold text-sm leading-snug">{p.nombre}</span>
+                      <span className="block text-[11px] text-gris-calido">{p.categoria || 'Sin categoría'}</span>
+                    </span>
+                    <span className="flex flex-wrap items-end justify-between gap-x-2 gap-y-1.5">
+                      <span className="kpi-valor text-lg leading-none">
+                        {p.precio === 0 ? <span className="flex items-center gap-1 text-sm"><Gift size={14} /> Regalo</span> : dinero(p.precio)}
+                      </span>
+                      <span className={`pastilla !text-[10px] ${p.disponible <= 0 ? (p.enCarrito > 0 ? 'pastilla-pendiente' : 'pastilla-peligro') : p.disponible <= 3 ? 'pastilla-pendiente' : 'pastilla-neutra'}`}>
+                        {p.disponible <= 0 ? (p.enCarrito > 0 ? 'Todo en pedido' : 'Agotado') : `${p.disponible} disp.`}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {catalogo.length === 0 && (
+                <div className="text-center py-10 text-sm text-gris-calido">
+                  <PackageX size={28} className="mx-auto mb-2 opacity-60" />
+                  {productos.length === 0 ? 'Todavía no hay productos. Agrégalos en Inventario.' : 'Ningún producto coincide con la búsqueda.'}
+                </div>
+              )}
+            </section>
+
+            {/* ---------- Pedido actual ---------- */}
+            {esPC && (
+              <aside className="panel p-4 md:p-5 sticky top-4">
+                {contenidoPedido}
+              </aside>
+            )}
+          </div>
+
+          {!esPC && (
+            <>
+              <button
+                onClick={() => setPedidoAbierto(true)}
+                className={`fixed z-30 bottom-4 right-4 left-4 sm:left-auto btn !py-3 !px-5 !text-base shadow-[4px_4px_0_#28203B] no-print ${carrito.length ? 'btn-primario' : 'btn-claro'}`}
+                aria-label="Abrir el pedido"
+              >
+                <ShoppingCart size={18} />
+                {carrito.length === 0
+                  ? 'Pedido vacío'
+                  : <>Pedido · {unidadesCarrito} un. <span className="opacity-60">·</span> {dinero(totalCarrito)}</>}
+              </button>
+
+              {pedidoAbierto && (
+                <div className="fixed inset-0 z-40 no-print" role="dialog" aria-modal="true" aria-label="Pedido">
+                  <div className="absolute inset-0 bg-tinta/50" onClick={() => setPedidoAbierto(false)} />
+                  <div className="ventana-pedido absolute inset-x-0 bottom-0 max-h-[90dvh] sm:inset-y-3 sm:right-3 sm:left-auto sm:w-[420px] sm:max-h-none overflow-y-auto overscroll-contain bg-white border-2 border-tinta rounded-t-[1.5rem] sm:rounded-[1.25rem] shadow-[0_-6px_0_rgba(40,32,59,0.12)] sm:shadow-[6px_6px_0_rgba(40,32,59,0.25)] p-4 md:p-5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="sm:hidden mx-auto h-1.5 w-12 rounded-full bg-[#E2D9C8]" aria-hidden="true" />
+                      <button onClick={() => setPedidoAbierto(false)} className="btn-icono ml-auto" aria-label="Cerrar el pedido" title="Cerrar">
+                        <X size={18} />
+                      </button>
+                    </div>
+                    {contenidoPedido}
+                    <button onClick={() => setPedidoAbierto(false)} className="btn btn-claro w-full mt-3">
+                      Seguir agregando productos
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           {/* ---------- Historial ---------- */}
           <div className="panel overflow-hidden mb-6">
@@ -1744,11 +1801,11 @@ export default function App({ usuario, onSesionVencida }) {
               <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
                 <thead>
                   <tr>
-                    <th className="p-3">Fecha</th>
+                    <th className="p-3 hidden md:table-cell">Fecha</th>
                     <th className="p-3">Cliente</th>
                     <th className="p-3">Detalle</th>
                     <th className="p-3 text-right">Total</th>
-                    <th className="p-3">Pago</th>
+                    <th className="p-3 hidden sm:table-cell">Pago</th>
                     <th className="p-3">Estado</th>
                     <th className="p-3 no-print"></th>
                   </tr>
@@ -1756,14 +1813,15 @@ export default function App({ usuario, onSesionVencida }) {
                 <tbody>
                   {ventasFiltradas.map((v) => (
                     <tr key={v.id}>
-                      <td className="p-3 text-gris-calido whitespace-nowrap">{v.fecha}<FirmaCambio item={v} /></td>
+                      <td className="p-3 text-gris-calido whitespace-nowrap hidden md:table-cell">{v.fecha}<FirmaCambio item={v} /></td>
                       <td className="p-3 font-semibold">{v.cliente}</td>
                       <td className="p-3">
                         <span className="font-semibold">{v.producto}</span> <span className="text-gris-calido">× {v.cantidad}</span>
+                        <span className="block md:hidden text-[11px] text-gris-calido">{v.fecha} · {v.medioPago}</span>
                         {v.variante && v.variante !== 'Auto (FEFO)' && <span className="block text-[11px] text-gris-calido">{v.variante}</span>}
                       </td>
                       <td className="p-3 font-bold text-right whitespace-nowrap">{dinero(v.total)}</td>
-                      <td className="p-3"><span className="pastilla pastilla-neutra">{v.medioPago}</span></td>
+                      <td className="p-3 hidden sm:table-cell"><span className="pastilla pastilla-neutra">{v.medioPago}</span></td>
                       <td className="p-3">
                         <button
                           onClick={() => togglePago(v.id, v.pagado)}
@@ -1800,10 +1858,10 @@ export default function App({ usuario, onSesionVencida }) {
       {/* ==================== PESTAÑA CLIENTES Y FIADOS ==================== */}
       {pestana === 'clientes' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
             <Kpi color="sol" icono={<HandCoins size={18} />} etiqueta="Total por cobrar" valor={dinero(totalPorCobrar)} detalle={`${ventasPendientes.length} venta(s) pendiente(s)`} />
             <Kpi color="coral" icono={<Users size={18} />} etiqueta="Clientes con deuda" valor={clientesConDeuda} detalle={deudoresSinRegistro.length > 0 ? `${deudoresSinRegistro.length} sin registrar (fiados antiguos)` : 'Todos registrados'} />
-            <Kpi color="turquesa" icono={<UserPlus size={18} />} etiqueta="Clientes registrados" valor={clientes.length} detalle="En el directorio" />
+            <Kpi clase="col-span-2 sm:col-span-1" color="turquesa" icono={<UserPlus size={18} />} etiqueta="Clientes registrados" valor={clientes.length} detalle="En el directorio" />
           </div>
 
           {/* Formulario de cliente */}
@@ -1888,9 +1946,9 @@ export default function App({ usuario, onSesionVencida }) {
                 <thead>
                   <tr>
                     <th className="p-3">Cliente</th>
-                    <th className="p-3">Teléfono</th>
-                    <th className="p-3">Ventas Pendientes</th>
-                    <th className="p-3">Último Fiado</th>
+                    <th className="p-3 hidden md:table-cell">Teléfono</th>
+                    <th className="p-3 hidden sm:table-cell">Ventas Pendientes</th>
+                    <th className="p-3 hidden lg:table-cell">Último Fiado</th>
                     <th className="p-3">Deuda</th>
                     <th className="p-3 text-right no-print">Acciones</th>
                   </tr>
@@ -1914,13 +1972,13 @@ export default function App({ usuario, onSesionVencida }) {
                             )}
                             {cuenta.cliente?.nota && <p className="ml-6 text-[11px] font-normal text-slate-400">{cuenta.cliente.nota}</p>}
                           </td>
-                          <td className="p-3 text-slate-500">
+                          <td className="p-3 text-slate-500 hidden md:table-cell">
                             {cuenta.cliente?.telefono
                               ? <span className="inline-flex items-center gap-1"><Phone size={12} /> {cuenta.cliente.telefono}</span>
                               : '—'}
                           </td>
-                          <td className="p-3">{cuenta.pendientes.length}</td>
-                          <td className="p-3 text-slate-500">{cuenta.ultimaFecha || '—'}</td>
+                          <td className="p-3 hidden sm:table-cell">{cuenta.pendientes.length}</td>
+                          <td className="p-3 text-slate-500 hidden lg:table-cell">{cuenta.ultimaFecha || '—'}</td>
                           <td className="p-3">
                             {cuenta.deuda > 0
                               ? <span className="font-bold text-amber-700">{dinero(cuenta.deuda)}</span>
@@ -2220,9 +2278,9 @@ export default function App({ usuario, onSesionVencida }) {
                   <tr>
                     <th className="p-3 w-10"></th>
                     <th className="p-3">Concepto</th>
-                    <th className="p-3">Tipo</th>
+                    <th className="p-3 hidden sm:table-cell">Tipo</th>
                     <th className="p-3 text-right">Monto</th>
-                    <th className="p-3">Fecha</th>
+                    <th className="p-3 hidden md:table-cell">Fecha</th>
                     <th className="p-3 text-right no-print">Acciones</th>
                   </tr>
                 </thead>
@@ -2250,9 +2308,9 @@ export default function App({ usuario, onSesionVencida }) {
                             <span className="font-semibold">{g.concepto}</span>
                             {tieneDetalle && !abierto && <span className="block text-[11px] text-gris-calido truncate max-w-[16rem]">{g.detalle}</span>}
                           </td>
-                          <td className="p-3"><span className="pastilla pastilla-neutra">{g.tipo}</span></td>
+                          <td className="p-3 hidden sm:table-cell"><span className="pastilla pastilla-neutra">{g.tipo}</span></td>
                           <td className="p-3 font-bold text-right whitespace-nowrap">{dinero(g.monto)}</td>
-                          <td className="p-3 text-gris-calido whitespace-nowrap">{g.fecha}</td>
+                          <td className="p-3 text-gris-calido whitespace-nowrap hidden md:table-cell">{g.fecha}</td>
                           <td className="p-3 no-print" onClick={(e) => e.stopPropagation()}>
                             <div className="flex justify-end gap-1">
                               <button onClick={() => iniciarEdicionGasto(g)} className="btn-icono" title="Editar gasto">
@@ -2489,11 +2547,11 @@ export default function App({ usuario, onSesionVencida }) {
                 <thead>
                   <tr>
                     <th className="p-3">Producto</th>
-                    <th className="p-3">Categoría</th>
-                    <th className="p-3">Costo</th>
+                    <th className="p-3 hidden md:table-cell">Categoría</th>
+                    <th className="p-3 hidden sm:table-cell">Costo</th>
                     <th className="p-3">Precio</th>
-                    <th className="p-3">Stock Total</th>
-                    <th className="p-3">Próx. Vencimiento</th>
+                    <th className="p-3">Stock</th>
+                    <th className="p-3 hidden lg:table-cell">Próx. Vencimiento</th>
                     <th className="p-3 text-right no-print">Acciones</th>
                   </tr>
                 </thead>
@@ -2522,8 +2580,8 @@ export default function App({ usuario, onSesionVencida }) {
                             )}
                             <FirmaCambio item={p} />
                           </td>
-                          <td className="p-3 text-slate-500">{p.categoria || 'Sin categoría'}</td>
-                          <td className="p-3">{dinero(p.costo)}</td>
+                          <td className="p-3 text-slate-500 hidden md:table-cell">{p.categoria || 'Sin categoría'}</td>
+                          <td className="p-3 hidden sm:table-cell">{dinero(p.costo)}</td>
                           <td className="p-3 font-bold text-slate-900">{dinero(p.precio)}</td>
                           <td className="p-3">
                             <span className={`pastilla ${
@@ -2532,7 +2590,7 @@ export default function App({ usuario, onSesionVencida }) {
                               {stockTotal} un.
                             </span>
                           </td>
-                          <td className="p-3 text-slate-600">{proxVenc}</td>
+                          <td className="p-3 text-slate-600 hidden lg:table-cell">{proxVenc}</td>
                           <td className="p-3 text-right no-print flex justify-end gap-2">
                             <button onClick={() => iniciarEdicionProductoBase(p)} className="btn-icono" title="Editar datos base">
                               <Edit2 size={16} />
@@ -2660,7 +2718,7 @@ export default function App({ usuario, onSesionVencida }) {
         <div
           key={toast.id}
           role="status"
-          className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] aviso no-print shadow-[4px_4px_0_rgba(40,32,59,0.25)] ${
+          className={`fixed bottom-24 2xl:bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] aviso no-print shadow-[4px_4px_0_rgba(40,32,59,0.25)] ${
             toast.tipo === 'error' ? 'aviso-error' : toast.tipo === 'info' ? 'aviso-info' : 'aviso-ok'
           }`}
         >

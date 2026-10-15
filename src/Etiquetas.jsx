@@ -172,16 +172,19 @@ export default function Etiquetas({ productos, puedeEditar, onAsignarCodigos }) 
                 <thead>
                   <tr>
                     <th className="p-3">Producto</th>
-                    <th className="p-3">Código</th>
-                    <th className="p-3 text-right">Precio</th>
+                    <th className="p-3 hidden md:table-cell">Código</th>
+                    <th className="p-3 text-right hidden sm:table-cell">Precio</th>
                     <th className="p-3">Cantidad</th>
                   </tr>
                 </thead>
                 <tbody>
                   {lista.map(p => (
                     <tr key={p.id}>
-                      <td className="p-3 font-semibold">{p.nombre}</td>
-                      <td className="p-3">
+                      <td className="p-3 font-semibold">
+                        {p.nombre}
+                        <span className="block md:hidden font-mono text-[10px] font-normal text-gris-calido">{p.codigo || 'Sin código'}</span>
+                      </td>
+                      <td className="p-3 hidden md:table-cell">
                         {p.codigo ? (
                           <span className="font-mono text-xs">
                             {p.codigo}
@@ -189,7 +192,7 @@ export default function Etiquetas({ productos, puedeEditar, onAsignarCodigos }) 
                           </span>
                         ) : <span className="text-gris-calido italic">Sin código</span>}
                       </td>
-                      <td className="p-3 text-right">{dinero(p.precio)}</td>
+                      <td className="p-3 text-right hidden sm:table-cell">{dinero(p.precio)}</td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <input

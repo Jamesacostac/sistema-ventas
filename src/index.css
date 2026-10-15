@@ -462,6 +462,8 @@
 
   /* Pestañas de navegación */
   .pestana {
+    flex-shrink: 0;
+    white-space: nowrap;
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -587,6 +589,22 @@
   }
   .stepper button:hover { background: var(--color-crema); }
   .stepper span { min-width: 1.75rem; text-align: center; font-size: 0.8rem; font-weight: 700; }
+
+  /* Barra de navegación deslizable sin barra de scroll visible */
+  .sin-scrollbar { scrollbar-width: none; }
+  .sin-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* Pantallas pequeñas: pestañas y tablas más compactas */
+  @media (max-width: 640px) {
+    .pestana { padding: 0.4rem 0.65rem; font-size: 0.78rem; gap: 0.35rem; }
+    .tabla th, .tabla td { padding: 0.6rem 0.5rem; }
+  }
+
+  /* Ventana del pedido: sube desde abajo en celular, entra por la derecha en tablet/portátil */
+  @keyframes subir { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes entrar-derecha { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .ventana-pedido { animation: subir 0.18s ease-out; }
+  @media (min-width: 640px) { .ventana-pedido { animation-name: entrar-derecha; } }
 
   /* Íconos de línea un poco más gruesos, como los del kit de marca */
   svg.lucide { stroke-width: 2.25; }
