@@ -1,9 +1,9 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth, usandoEmulador } from './firebase'
 import './index.css'
-import App from './App.jsx'
+import EspacioNegocios from './Negocios.jsx'
 import Login from './Login.jsx'
 import Verificacion from './Verificacion.jsx'
 
@@ -12,6 +12,7 @@ function Raiz() {
   const [usuario, setUsuario] = useState(undefined);
   // La sesión de este dispositivo fue verificada (código o dispositivo de confianza)
   const [verificado, setVerificado] = useState(usandoEmulador);
+  const alVencerSesion = useCallback(() => setVerificado(false), []);
 
   useEffect(() => onAuthStateChanged(auth, (u) => {
     setUsuario(u);
@@ -34,8 +35,8 @@ function Raiz() {
     return <Verificacion key={usuario.uid} usuario={usuario} onVerificada={() => setVerificado(true)} />;
   }
 
-  // key: al cambiar de usuario se reinicia App y sus listeners de Firestore
-  return <App key={usuario.uid} usuario={usuario} onSesionVencida={() => setVerificado(false)} />;
+  // key: al cambiar de usuario se reinicia todo y sus listeners de Firestore
+  return <EspacioNegocios key={usuario.uid} usuario={usuario} onSesionVencida={alVencerSesion} />;
 }
 
 createRoot(document.getElementById('root')).render(

@@ -31,8 +31,9 @@ const colorAccion = (accion = '') =>
     : /cread|registrad|agregad|cobrad/i.test(accion) ? 'pastilla-ok'
     : 'pastilla-pendiente';
 
-export default function Historial() {
-  const [registros, setRegistros] = useState([]);
+export default function Historial({ negocioId, incluirAntiguo = false }) {
+  const [registrosNegocio, setRegistrosNegocio] = useState([]);
+  const [registrosAntiguos, setRegistrosAntiguos] = useState([]);
   const [cantidad, setCantidad] = useState(PASO);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -42,15 +43,25 @@ export default function Historial() {
   const [abierto, setAbierto] = useState(null);
 
   useEffect(() => {
-    const q = query(collection(db, 'auditoria'), orderBy('fecha', 'desc'), limit(cantidad));
-    return onSnapshot(q, (snap) => {
-      setRegistros(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const q = query(collection(db, 'negocios', negocioId, 'auditoria'), orderBy('fecha', 'desc'), limit(cantidad));
+    const cancelar = [onSnapshot(q, (snap) => {
+      setRegistrosNegocio(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setCargando(false);
     }, (err) => {
       setError('No se pudo cargar el historial: ' + err.message);
       setCargando(false);
-    });
-  }, [cantidad]);
+    })];
+    // Historial de antes de separar los negocios (solo Tazón para Dos)
+    if (incluirAntiguo) {
+      const qa = query(collection(db, 'auditoria'), orderBy('fecha', 'desc'), limit(cantidad));
+      cancelar.push(onSnapshot(qa, (snap) => setRegistrosAntiguos(snap.docs.map(d => ({ id: 'antiguo_' + d.id, antiguo: true, ...d.data() }))), () => {}));
+    }
+    return () => cancelar.forEach(f => f());
+  }, [cantidad, negocioId, incluirAntiguo]);
+
+  const registros = useMemo(() => [...registrosNegocio, ...registrosAntiguos]
+    .sort((a, b) => (b.fecha?.toMillis?.() || 0) - (a.fecha?.toMillis?.() || 0))
+    .slice(0, cantidad), [registrosNegocio, registrosAntiguos, cantidad]);
 
   const socios = useMemo(() => [...new Set(registros.map(r => r.nombre).filter(Boolean))].sort(), [registros]);
 
@@ -121,6 +132,7 @@ export default function Historial() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`pastilla ${colorAccion(r.accion)}`}>{r.accion}</span>
                       <span className="font-semibold text-slate-800">{r.nombre || 'Desconocido'}</span>
+                      {r.antiguo && <span className="pastilla pastilla-neutra !text-[9px]" title="Antes de separar los negocios">ANTERIOR</span>}
                     </div>
                     {r.detalle && <p className="text-xs text-slate-600 mt-1 break-words">{r.detalle}</p>}
                   </div>

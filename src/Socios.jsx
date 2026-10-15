@@ -55,7 +55,7 @@ function EditorPermisos({ permisos, onChange, puedeOtorgarSocios }) {
   );
 }
 
-export default function Socios({ usuario }) {
+export default function Socios({ usuario, negocioId, negocio }) {
   const [socios, setSocios] = useState([]);
   const [form, setForm] = useState({ nombre: '', correo: '', clave: '' });
   const [permisosNuevo, setPermisosNuevo] = useState(aMapa(RANGO_INICIAL.permisos));
@@ -65,31 +65,33 @@ export default function Socios({ usuario }) {
   const [editandoId, setEditandoId] = useState(null);
   const [permisosEdicion, setPermisosEdicion] = useState({});
 
-  useEffect(() => onSnapshot(collection(db, 'admins'), (snap) => {
+  useEffect(() => onSnapshot(collection(db, 'negocios', negocioId, 'miembros'), (snap) => {
     const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     setSocios(lista.sort((a, b) =>
-      (a.rol === 'principal' ? 0 : 1) - (b.rol === 'principal' ? 0 : 1) || (a.nombre || '').localeCompare(b.nombre || '', 'es')
+      (a.rol === 'titular' ? 0 : 1) - (b.rol === 'titular' ? 0 : 1) || (a.nombre || '').localeCompare(b.nombre || '', 'es')
     ));
-  }), []);
+  }), [negocioId]);
 
   const yo = socios.find(s => s.id === usuario.uid);
-  const soyTitular = yo?.rol === 'principal';
+  const soyTitular = yo?.rol === 'titular';
   const soyGestor = soyTitular || yo?.permisos?.socios === true;
 
   // Mismas reglas que aplica el servidor
   const puedoModificar = (s) =>
-    soyGestor && s.id !== usuario.uid && s.rol !== 'principal' && (soyTitular || !s.permisos?.socios);
+    soyGestor && s.id !== usuario.uid && s.rol !== 'titular' && (soyTitular || !s.permisos?.socios);
 
   const handleCrear = async (e) => {
     e.preventDefault();
     setEstado(null);
-    if (form.clave.length < 8) return setEstado({ tipo: 'error', texto: 'La contraseña debe tener al menos 8 caracteres.' });
+    if (form.clave && form.clave.length < 8) return setEstado({ tipo: 'error', texto: 'La contraseña debe tener al menos 8 caracteres.' });
     setGuardando(true);
     try {
-      await llamarServidor('/socios/crear', { ...form, permisos: permisosNuevo });
+      const r = await llamarServidor('/miembros/crear', { negocioId, ...form, permisos: permisosNuevo });
       setEstado({
         tipo: 'ok',
-        texto: `Socio creado. Comparte con ${form.nombre.trim()} su correo y contraseña: la primera vez que entre recibirá un código en ${form.correo.trim()} y podrá cambiar su contraseña en "Mi Perfil".`
+        texto: r.cuentaNueva
+          ? `Socio agregado a ${negocio?.nombre}. Comparte con ${form.nombre.trim() || form.correo.trim()} su correo y contraseña: la primera vez que entre recibirá un código en su correo.`
+          : `Esa persona ya tenía cuenta en la app: quedó agregada a ${negocio?.nombre} y la verá en su selector de negocios.`
       });
       setForm({ nombre: '', correo: '', clave: '' });
       setPermisosNuevo(aMapa(RANGO_INICIAL.permisos));
@@ -108,7 +110,7 @@ export default function Socios({ usuario }) {
   const handleGuardarPermisos = async (s) => {
     setGuardando(true);
     try {
-      await llamarServidor('/socios/permisos', { uid: s.id, permisos: permisosEdicion });
+      await llamarServidor('/miembros/permisos', { negocioId, uid: s.id, permisos: permisosEdicion });
       setEditandoId(null);
     } catch (err) {
       alert('No se pudo cambiar el rango: ' + err.message);
@@ -118,9 +120,9 @@ export default function Socios({ usuario }) {
   };
 
   const handleQuitar = async (socio) => {
-    if (!confirm(`¿Quitar a ${socio.nombre} como socio?\n\nYa no podrá entrar al sistema y se cerrarán sus sesiones. Las ventas que registró y el historial de sus cambios se conservan.`)) return;
+    if (!confirm(`¿Quitar a ${socio.nombre} de ${negocio?.nombre}?\n\nYa no verá este negocio. Si participa en otros negocios, los sigue viendo. Las ventas que registró y el historial de sus cambios se conservan.`)) return;
     try {
-      await llamarServidor('/socios/eliminar', { uid: socio.id });
+      await llamarServidor('/miembros/eliminar', { negocioId, uid: socio.id });
     } catch (err) {
       alert('No se pudo quitar al socio: ' + err.message);
     }
@@ -133,7 +135,7 @@ export default function Socios({ usuario }) {
           <h2 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
             <UserPlus size={18} className="text-indigo-600" /> Agregar socio
           </h2>
-          <p className="text-xs text-slate-500 mb-4">Se crea su cuenta con este correo y contraseña. Tu sesión no se cierra.</p>
+          <p className="text-xs text-slate-500 mb-4">Si la persona ya usa la app (por ejemplo, en otro negocio), basta con su correo. Si no, se crea su cuenta con esta contraseña.</p>
           <form onSubmit={handleCrear} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
@@ -158,11 +160,10 @@ export default function Socios({ usuario }) {
                 />
               </div>
               <div>
-                <label className="etiqueta">Contraseña (mín. 8)</label>
+                <label className="etiqueta">Contraseña <span className="font-normal text-gris-calido">(solo si es cuenta nueva)</span></label>
                 <div className="relative">
                   <input
                     type={verClave ? 'text' : 'password'}
-                    required
                     autoComplete="new-password"
                     value={form.clave}
                     onChange={(e) => setForm({ ...form, clave: e.target.value })}
@@ -210,7 +211,7 @@ export default function Socios({ usuario }) {
       <div className="panel overflow-hidden">
         <div className="p-4 border-b border-slate-200">
           <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-            <Handshake size={18} /> Socios y rangos ({socios.length})
+            <Handshake size={18} /> Socios de {negocio?.nombre} ({socios.length})
           </h2>
           <p className="text-xs text-slate-500 mt-1">Todos los cambios de cada socio, incluido el titular, quedan en la pestaña Historial.</p>
         </div>
@@ -223,17 +224,17 @@ export default function Socios({ usuario }) {
                 <div className="flex justify-between items-start gap-3">
                   <div>
                     <p className="font-semibold text-slate-800 flex items-center gap-2 flex-wrap">
-                      {s.rol === 'principal' && <Crown size={14} className="text-amber-500" />}
+                      {s.rol === 'titular' && <Crown size={14} className="text-amber-500" />}
                       {s.nombre || 'Sin nombre'}
                       {s.id === usuario.uid && <span className="pastilla pastilla-info !text-[10px]">TÚ</span>}
                       <span className={`pastilla !text-[10px] ${
-                        s.rol === 'principal' ? 'pastilla-pendiente' : 'pastilla-neutra'
+                        s.rol === 'titular' ? 'pastilla-pendiente' : 'pastilla-neutra'
                       }`}>
                         {nombreRango(s).toUpperCase()}
                       </span>
                     </p>
                     <p className="text-xs text-slate-500">{s.correo}</p>
-                    {s.rol !== 'principal' && (
+                    {s.rol !== 'titular' && (
                       <p className="text-[11px] text-slate-400 mt-1">
                         {PERMISOS.filter(p => s.permisos?.[p.clave]).map(p => p.etiqueta).join(' · ') || 'Solo puede ver la información'}
                       </p>

@@ -163,6 +163,13 @@ const firestore = (env) => {
     },
     set: (ruta, obj) => pedir(`${base}/${ruta}`, { method: 'PATCH', body: JSON.stringify(aCampos(obj)) }),
     borrar: (ruta) => pedir(`${base}/${ruta}`, { method: 'DELETE' }),
+    listar: async (coleccion) => {
+      const resultado = await pedir(`${base}:runQuery`, {
+        method: 'POST',
+        body: JSON.stringify({ structuredQuery: { from: [{ collectionId: coleccion }] } })
+      });
+      return (resultado || []).filter(r => r.document).map(r => deDocumento(r.document));
+    },
     buscar: async (coleccion, campo, valor) => {
       const resultado = await pedir(`${base}:runQuery`, {
         method: 'POST',
@@ -244,34 +251,21 @@ const exigirSesion = async (ctx) => {
   return sesion;
 };
 
-// ==================== Rangos y auditoría ====================
+// ==================== Negocios, rangos y auditoría ====================
 
 const PERMISOS = ['ventas', 'ventas_editar', 'clientes', 'inventario', 'finanzas', 'socios'];
 // Por defecto un socio nuevo puede modificar todo, excepto gestionar socios
 const PERMISOS_POR_DEFECTO = { ventas: true, ventas_editar: true, clientes: true, inventario: true, finanzas: true, socios: false };
+const COLORES = ['turquesa', 'coral', 'sol', 'verde', 'lila'];
+const ID_TAZON = 'tazon-para-dos';
 
-const esTitular = (perfil) => perfil?.rol === 'principal';
-const puedeGestionarSocios = (perfil) => esTitular(perfil) || perfil?.permisos?.socios === true;
+const esTitular = (miembro) => miembro?.rol === 'titular';
+const puedeGestionarSocios = (miembro) => esTitular(miembro) || miembro?.permisos?.socios === true;
 
-const exigirGestor = (ctx) => {
-  if (!puedeGestionarSocios(ctx.admin)) {
-    throw new ErrorApi(403, 'No tienes permiso para gestionar socios. Solo el titular o quien él autorice.');
-  }
-};
-
-// Reglas sobre a quién puede afectar cada gestor
-const exigirPuedeAfectar = (ctx, socio) => {
-  if (socio.id === ctx.uid) throw new ErrorApi(400, 'No puedes modificar tu propia cuenta desde aquí.');
-  if (esTitular(socio)) throw new ErrorApi(403, 'Nadie puede modificar al titular.');
-  if (!esTitular(ctx.admin) && socio.permisos?.socios) {
-    throw new ErrorApi(403, 'Solo el titular puede modificar a otro gestor de socios.');
-  }
-};
-
-const limpiarPermisos = (ctx, permisos = {}) => {
+const limpiarPermisos = (actor, permisos = {}) => {
   const limpios = Object.fromEntries(PERMISOS.map(p => [p, permisos[p] === true]));
   // Solo el titular puede autorizar a otros a gestionar socios
-  if (!esTitular(ctx.admin)) limpios.socios = false;
+  if (!esTitular(actor)) limpios.socios = false;
   return limpios;
 };
 
@@ -280,9 +274,46 @@ const textoPermisos = (permisos) => {
   return activos.length ? activos.join(', ') : 'solo lectura';
 };
 
-// Registro en la auditoría de lo que hace el servidor a pedido de un usuario
-const auditar = (ctx, accion, detalle, cambios = []) =>
-  ctx.db.set(`auditoria/srv_${Date.now()}_${hexAleatorio(4)}`, {
+const slug = (texto) => String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'negocio';
+
+// Miembro del negocio que hace la petición (y que la sesión esté verificada)
+const exigirMiembro = async (ctx, negocioId) => {
+  if (!negocioId || typeof negocioId !== 'string') throw new ErrorApi(400, 'Falta indicar el negocio.');
+  await exigirSesion(ctx);
+  const actor = await ctx.db.get(`negocios/${negocioId}/miembros/${ctx.uid}`);
+  if (!actor) throw new ErrorApi(403, 'No perteneces a este negocio.');
+  return actor;
+};
+
+const exigirGestor = (actor) => {
+  if (!puedeGestionarSocios(actor)) {
+    throw new ErrorApi(403, 'No tienes permiso para gestionar socios. Solo el titular o quien él autorice.');
+  }
+};
+
+// Reglas sobre a quién puede afectar cada gestor
+const exigirPuedeAfectar = (ctx, actor, socio) => {
+  if (socio.id === ctx.uid) throw new ErrorApi(400, 'No puedes modificar tu propia cuenta desde aquí.');
+  if (esTitular(socio)) throw new ErrorApi(403, 'Nadie puede modificar al titular.');
+  if (!esTitular(actor) && socio.permisos?.socios) {
+    throw new ErrorApi(403, 'Solo el titular puede modificar a otro gestor de socios.');
+  }
+};
+
+// Lista de negocios de una cuenta (se guarda en admins/{uid}.negocios)
+const ajustarNegociosDeCuenta = async (ctx, uid, negocioId, agregar) => {
+  const cuenta = await ctx.db.get(`admins/${uid}`);
+  if (!cuenta) return;
+  const { id: _id, ...datos } = cuenta;
+  const lista = new Set(Array.isArray(datos.negocios) ? datos.negocios : []);
+  if (agregar) lista.add(negocioId); else lista.delete(negocioId);
+  await ctx.db.set(`admins/${uid}`, { ...datos, negocios: [...lista] });
+};
+
+// Registro en la auditoría del negocio de lo que hace el servidor a pedido de un usuario
+const auditar = (ctx, negocioId, accion, detalle, cambios = []) =>
+  ctx.db.set(`negocios/${negocioId}/auditoria/srv_${Date.now()}_${hexAleatorio(4)}`, {
     uid: ctx.uid,
     nombre: ctx.admin.nombre || ctx.correo,
     accion,
@@ -290,6 +321,10 @@ const auditar = (ctx, accion, detalle, cambios = []) =>
     cambios,
     fecha: new Date()
   });
+
+// Cambios de la cuenta (contraseña, correo, nombre): quedan en la auditoría de cada negocio de la persona
+const auditarCuenta = (ctx, accion, detalle) =>
+  Promise.all((ctx.admin.negocios || []).map(nid => auditar(ctx, nid, accion, detalle)));
 
 // Comprueba un código; si es correcto lo invalida para que no se pueda reusar
 const verificarCodigo = async (ctx, proposito, codigo) => {
@@ -428,7 +463,7 @@ const rutas = {
       if (error.codigo === 'WEAK_PASSWORD') throw new ErrorApi(400, 'La nueva contraseña es demasiado débil.');
       throw error;
     }
-    await auditar(ctx, 'Contraseña cambiada', `Desde ${ctx.dispositivo}`);
+    await auditarCuenta(ctx, 'Contraseña cambiada', `Desde ${ctx.dispositivo}`);
     return { ok: true };
   },
 
@@ -448,7 +483,7 @@ const rutas = {
       if (error.codigo === 'EMAIL_EXISTS') throw new ErrorApi(409, 'Ese correo ya está en uso por otra cuenta.');
       throw error;
     }
-    await auditar(ctx, 'Cambio de correo solicitado', `${ctx.correo} → ${correoNuevo}`);
+    await auditarCuenta(ctx, 'Cambio de correo solicitado', `${ctx.correo} → ${correoNuevo}`);
     return { ok: true };
   },
 
@@ -460,87 +495,156 @@ const rutas = {
     const { id: _id, ...admin } = ctx.admin;
     await ctx.db.set(`admins/${ctx.uid}`, { ...admin, nombre: limpio, correo: ctx.correo });
     await identity(ctx.env, 'accounts:update', { idToken: ctx.idToken, displayName: limpio }).catch(() => {});
-    if (admin.nombre !== limpio) await auditar(ctx, 'Nombre de usuario cambiado', `${admin.nombre || '(sin nombre)'} → ${limpio}`);
+    if (admin.nombre !== limpio) {
+      await auditarCuenta(ctx, 'Nombre de usuario cambiado', `${admin.nombre || '(sin nombre)'} → ${limpio}`);
+      // Mantener el nombre al día en los negocios donde participa
+      await Promise.all((admin.negocios || []).map(async (nid) => {
+        const m = await ctx.db.get(`negocios/${nid}/miembros/${ctx.uid}`);
+        if (m) { const { id: _m, ...dm } = m; await ctx.db.set(`negocios/${nid}/miembros/${ctx.uid}`, { ...dm, nombre: limpio }); }
+      }));
+    }
     return { ok: true };
   },
 
-  '/socios/crear': async (ctx, { nombre, correo, clave, permisos }) => {
+  // Registrar un negocio nuevo: quien lo crea queda como titular
+  '/negocios/crear': async (ctx, { nombre, color, porcentajeAhorro, numeroSocios }) => {
     await exigirSesion(ctx);
-    exigirGestor(ctx);
+    const nombreLimpio = String(nombre || '').trim().replace(/\s+/g, ' ');
+    if (nombreLimpio.length < 2 || nombreLimpio.length > 50) throw new ErrorApi(400, 'El nombre del negocio debe tener entre 2 y 50 caracteres.');
+    const ahorro = Number(porcentajeAhorro ?? 15);
+    const socios = Number(numeroSocios ?? 1);
+    if (!(ahorro >= 0 && ahorro <= 100)) throw new ErrorApi(400, 'El porcentaje de ahorro debe estar entre 0 y 100.');
+    if (!Number.isInteger(socios) || socios < 1 || socios > 50) throw new ErrorApi(400, 'El número de socios debe ser un entero entre 1 y 50.');
+
+    let id = slug(nombreLimpio);
+    if (await ctx.db.get(`negocios/${id}`)) id = `${id}-${hexAleatorio(3)}`;
+
+    await ctx.db.set(`negocios/${id}`, {
+      nombre: nombreLimpio,
+      color: COLORES.includes(color) ? color : 'coral',
+      porcentajeAhorro: ahorro,
+      numeroSocios: socios,
+      migrado: true,
+      creado: new Date(),
+      creadoPor: ctx.uid
+    });
+    await ctx.db.set(`negocios/${id}/miembros/${ctx.uid}`, {
+      uid: ctx.uid, nombre: ctx.admin.nombre || ctx.correo, correo: ctx.correo, rol: 'titular', creado: new Date()
+    });
+    await ajustarNegociosDeCuenta(ctx, ctx.uid, id, true);
+    await auditar(ctx, id, 'Negocio creado', `${nombreLimpio} · ahorro ${ahorro} % · reparto entre ${socios} socio(s)`);
+    return { ok: true, id };
+  },
+
+  // Separar los datos actuales (raíz) como el negocio "Tazón para Dos": crea el negocio y
+  // copia las cuentas con sus rangos como miembros. Los datos los copia después la app.
+  '/negocios/preparar-tazon': async (ctx) => {
+    await exigirSesion(ctx);
+    if (ctx.admin.rol !== 'principal') throw new ErrorApi(403, 'Solo el titular de Tazón para Dos puede prepararlo.');
+    if (await ctx.db.get(`negocios/${ID_TAZON}`)) throw new ErrorApi(409, 'Tazón para Dos ya fue preparado.');
+
+    await ctx.db.set(`negocios/${ID_TAZON}`, {
+      nombre: 'Tazón para Dos', color: 'turquesa', porcentajeAhorro: 15, numeroSocios: 3,
+      migrado: false, creado: new Date(), creadoPor: ctx.uid
+    });
+    const cuentas = await ctx.db.listar('admins');
+    for (const c of cuentas) {
+      await ctx.db.set(`negocios/${ID_TAZON}/miembros/${c.id}`, {
+        uid: c.id,
+        nombre: c.nombre || c.correo || '',
+        correo: c.correo || '',
+        rol: c.rol === 'principal' ? 'titular' : 'socio',
+        permisos: c.rol === 'principal' ? {} : limpiarPermisos({ rol: 'titular' }, c.permisos || PERMISOS_POR_DEFECTO),
+        creado: new Date()
+      });
+      await ajustarNegociosDeCuenta(ctx, c.id, ID_TAZON, true);
+    }
+    await auditar(ctx, ID_TAZON, 'Negocio preparado', `Tazón para Dos separado con ${cuentas.length} miembro(s)`);
+    return { ok: true, id: ID_TAZON };
+  },
+
+  // Agregar un socio al negocio: si ya tiene cuenta en la app solo se agrega; si no, se crea
+  '/miembros/crear': async (ctx, { negocioId, nombre, correo, clave, permisos }) => {
+    const actor = await exigirMiembro(ctx, negocioId);
+    exigirGestor(actor);
 
     const nombreLimpio = String(nombre || '').trim().replace(/\s+/g, ' ');
     const correoLimpio = String(correo || '').trim().toLowerCase();
-    if (nombreLimpio.length < 2) throw new ErrorApi(400, 'Escribe el nombre del socio.');
     if (!esCorreoValido(correoLimpio)) throw new ErrorApi(400, 'El correo no es válido.');
-    if (!clave || clave.length < 8) throw new ErrorApi(400, 'La contraseña debe tener al menos 8 caracteres.');
 
-    let uid;
-    try {
-      uid = (await identity(ctx.env, 'accounts:signUp', {
-        email: correoLimpio, password: clave, displayName: nombreLimpio, returnSecureToken: true
-      })).localId;
-    } catch (error) {
-      if (error.codigo !== 'EMAIL_EXISTS') throw error;
-      // La cuenta ya existía (p. ej. un socio que se había quitado): se reactiva si la contraseña coincide
+    const existentes = await ctx.db.buscar('admins', 'correo', correoLimpio);
+    let uid = existentes[0]?.id;
+    let cuentaNueva = false;
+
+    if (!uid) {
+      if (nombreLimpio.length < 2) throw new ErrorApi(400, 'Escribe el nombre del socio.');
+      if (!clave || clave.length < 8) throw new ErrorApi(400, 'La contraseña debe tener al menos 8 caracteres.');
       try {
-        uid = (await identity(ctx.env, 'accounts:signInWithPassword', {
-          email: correoLimpio, password: clave, returnSecureToken: true
+        uid = (await identity(ctx.env, 'accounts:signUp', {
+          email: correoLimpio, password: clave, displayName: nombreLimpio, returnSecureToken: true
         })).localId;
-      } catch {
-        throw new ErrorApi(409, 'Ya existe una cuenta con ese correo y otra contraseña.');
+      } catch (error) {
+        if (error.codigo !== 'EMAIL_EXISTS') throw error;
+        try {
+          uid = (await identity(ctx.env, 'accounts:signInWithPassword', { email: correoLimpio, password: clave, returnSecureToken: true })).localId;
+        } catch {
+          throw new ErrorApi(409, 'Ya existe una cuenta con ese correo y otra contraseña.');
+        }
       }
+      await ctx.db.set(`admins/${uid}`, { nombre: nombreLimpio, correo: correoLimpio, rol: 'socio', negocios: [], creado: new Date(), creadoPor: ctx.uid });
+      cuentaNueva = true;
     }
 
-    if (await ctx.db.get(`admins/${uid}`)) throw new ErrorApi(409, 'Esa persona ya es socio.');
-    const permisosFinales = limpiarPermisos(ctx, permisos || PERMISOS_POR_DEFECTO);
-    const nuevo = {
-      nombre: nombreLimpio, correo: correoLimpio, rol: 'socio', permisos: permisosFinales,
-      creado: new Date(), creadoPor: ctx.uid
-    };
-    await ctx.db.set(`admins/${uid}`, nuevo);
-    await auditar(ctx, 'Socio agregado', `${nombreLimpio} (${correoLimpio}) — permisos: ${textoPermisos(permisosFinales)}`,
-      [{ ruta: `admins/${uid}`, tipo: 'crear', antes: null, despues: { nombre: nombreLimpio, correo: correoLimpio, permisos: permisosFinales } }]);
-    return { ok: true, uid };
+    if (await ctx.db.get(`negocios/${negocioId}/miembros/${uid}`)) throw new ErrorApi(409, 'Esa persona ya es socio de este negocio.');
+    const cuenta = await ctx.db.get(`admins/${uid}`);
+    const permisosFinales = limpiarPermisos(actor, permisos || PERMISOS_POR_DEFECTO);
+    const nombreFinal = cuenta?.nombre || nombreLimpio || correoLimpio;
+    await ctx.db.set(`negocios/${negocioId}/miembros/${uid}`, {
+      uid, nombre: nombreFinal, correo: correoLimpio, rol: 'socio', permisos: permisosFinales, creado: new Date(), creadoPor: ctx.uid
+    });
+    await ajustarNegociosDeCuenta(ctx, uid, negocioId, true);
+    await auditar(ctx, negocioId, 'Socio agregado', `${nombreFinal} (${correoLimpio}) — permisos: ${textoPermisos(permisosFinales)}`,
+      [{ ruta: `miembros/${uid}`, tipo: 'crear', antes: null, despues: { nombre: nombreFinal, correo: correoLimpio, permisos: permisosFinales } }]);
+    return { ok: true, uid, cuentaNueva };
   },
 
-  // Cambiar el rango (permisos de edición) de un socio
-  '/socios/permisos': async (ctx, { uid, permisos }) => {
-    await exigirSesion(ctx);
-    exigirGestor(ctx);
+  // Cambiar el rango (permisos de edición) de un socio del negocio
+  '/miembros/permisos': async (ctx, { negocioId, uid, permisos }) => {
+    const actor = await exigirMiembro(ctx, negocioId);
+    exigirGestor(actor);
+    const socio = await ctx.db.get(`negocios/${negocioId}/miembros/${uid}`);
+    if (!socio) throw new ErrorApi(404, 'Socio no encontrado en este negocio.');
+    exigirPuedeAfectar(ctx, actor, socio);
 
-    const socio = await ctx.db.get(`admins/${uid}`);
-    if (!socio) throw new ErrorApi(404, 'Socio no encontrado.');
-    exigirPuedeAfectar(ctx, socio);
-
-    const nuevos = limpiarPermisos(ctx, permisos);
-    if (!esTitular(ctx.admin)) nuevos.socios = socio.permisos?.socios === true; // un gestor no toca ese permiso
+    const nuevos = limpiarPermisos(actor, permisos);
+    if (!esTitular(actor)) nuevos.socios = socio.permisos?.socios === true; // un gestor no toca ese permiso
 
     const { id: _id, ...datos } = socio;
-    await ctx.db.set(`admins/${uid}`, { ...datos, permisos: nuevos, permisosCambiadosPor: ctx.uid, permisosCambiadosEn: new Date() });
-    await auditar(ctx, 'Rango de socio cambiado', `${socio.nombre}: ${textoPermisos(socio.permisos)} → ${textoPermisos(nuevos)}`,
-      [{ ruta: `admins/${uid}`, tipo: 'editar', antes: { permisos: socio.permisos || {} }, despues: { permisos: nuevos } }]);
+    await ctx.db.set(`negocios/${negocioId}/miembros/${uid}`, { ...datos, permisos: nuevos, permisosCambiadosPor: ctx.uid, permisosCambiadosEn: new Date() });
+    await auditar(ctx, negocioId, 'Rango de socio cambiado', `${socio.nombre}: ${textoPermisos(socio.permisos)} → ${textoPermisos(nuevos)}`,
+      [{ ruta: `miembros/${uid}`, tipo: 'editar', antes: { permisos: socio.permisos || {} }, despues: { permisos: nuevos } }]);
     return { ok: true, permisos: nuevos };
   },
 
-  '/socios/eliminar': async (ctx, { uid }) => {
-    await exigirSesion(ctx);
-    exigirGestor(ctx);
+  // Quitar un socio del negocio (su cuenta sigue existiendo si participa en otros negocios)
+  '/miembros/eliminar': async (ctx, { negocioId, uid }) => {
+    const actor = await exigirMiembro(ctx, negocioId);
+    exigirGestor(actor);
+    const socio = await ctx.db.get(`negocios/${negocioId}/miembros/${uid}`);
+    if (!socio) throw new ErrorApi(404, 'Socio no encontrado en este negocio.');
+    exigirPuedeAfectar(ctx, actor, socio);
 
-    const socio = await ctx.db.get(`admins/${uid}`);
-    if (!socio) throw new ErrorApi(404, 'Socio no encontrado.');
-    exigirPuedeAfectar(ctx, socio);
+    await ctx.db.borrar(`negocios/${negocioId}/miembros/${uid}`);
+    await ajustarNegociosDeCuenta(ctx, uid, negocioId, false);
+    await auditar(ctx, negocioId, 'Socio quitado', `${socio.nombre} (${socio.correo})`,
+      [{ ruta: `miembros/${uid}`, tipo: 'eliminar', antes: { nombre: socio.nombre, correo: socio.correo, permisos: socio.permisos || {} }, despues: null }]);
 
-    await ctx.db.borrar(`admins/${uid}`);
-    await auditar(ctx, 'Socio quitado', `${socio.nombre} (${socio.correo})`,
-      [{ ruta: `admins/${uid}`, tipo: 'eliminar', antes: { nombre: socio.nombre, correo: socio.correo, permisos: socio.permisos || {} }, despues: null }]);
-    const [sesiones, dispositivos] = await Promise.all([
-      ctx.db.buscar('sesiones', 'uid', uid),
-      ctx.db.buscar('dispositivos', 'uid', uid)
-    ]);
-    await Promise.all([
-      ...sesiones.map(s => ctx.db.borrar(`sesiones/${s.id}`)),
-      ...dispositivos.map(d => ctx.db.borrar(`dispositivos/${d.id}`))
-    ]);
+    // Si ya no participa en ningún negocio, se cierran sus sesiones
+    const cuenta = await ctx.db.get(`admins/${uid}`);
+    if (!cuenta?.negocios?.length) {
+      const [sesiones, dispositivos] = await Promise.all([ctx.db.buscar('sesiones', 'uid', uid), ctx.db.buscar('dispositivos', 'uid', uid)]);
+      await Promise.all([...sesiones.map(x => ctx.db.borrar(`sesiones/${x.id}`)), ...dispositivos.map(d => ctx.db.borrar(`dispositivos/${d.id}`))]);
+    }
     return { ok: true };
   }
 };

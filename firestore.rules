@@ -1,20 +1,25 @@
 rules_version = '2';
 
-// Seguridad del Sistema de Ventas
+// Seguridad del Sistema de Ventas (varios negocios)
 //
-// 1. ACCESO: para leer o escribir hay que ser administrador (admins/{uid}) y tener la
-//    sesión de este dispositivo verificada (sesiones/{uid}_{auth_time}, la crea el
-//    servidor de verificación después del código por correo o de un dispositivo de confianza).
+// 1. ACCESO: hay que tener cuenta habilitada (admins/{uid}) y la sesión de este dispositivo
+//    verificada (sesiones/{uid}_{auth_time}, la crea el servidor de verificación después del
+//    código por correo o de un dispositivo de confianza).
 //
-// 2. PERMISOS (rangos): el titular (rol "principal") puede todo. Cada socio tiene un mapa
-//    admins/{uid}.permisos con: ventas, ventas_editar, clientes, inventario, finanzas, socios.
-//    Los permisos solo los cambia el servidor, a pedido del titular o de quien él autorice.
+// 2. NEGOCIOS: cada negocio guarda sus datos en negocios/{nid}/... y tiene sus propios
+//    miembros (negocios/{nid}/miembros/{uid}) con rol "titular" o "socio" y permisos:
+//    ventas, ventas_editar, clientes, inventario, finanzas, socios. Nadie ve ni toca los
+//    datos de un negocio del que no es miembro. Los miembros solo los cambia el servidor.
 //
 // 3. AUDITORÍA: todo documento que se crea o modifica lleva el sello modificadoPor /
-//    modificadoEn / auditoriaId, y en la MISMA operación se debe crear el registro
-//    auditoria/{auditoriaId} con el nombre del usuario y la hora del servidor. Las
-//    eliminaciones crean auditoria/eliminar_{coleccion}_{id}. Si falta el registro,
-//    la escritura se rechaza. Nadie (ni el titular) puede editar o borrar la auditoría.
+//    modificadoEn / auditoriaId y, en la MISMA operación, el registro
+//    negocios/{nid}/auditoria/{auditoriaId} con el nombre del usuario y la hora del servidor.
+//    Las eliminaciones crean .../auditoria/eliminar_{coleccion}_{id}. Sin registro, se rechaza.
+//    Nadie (ni el titular) puede editar o borrar la auditoría.
+//
+// 4. DATOS ANTIGUOS: las colecciones de la raíz (productos, ventas, ...) son los datos de
+//    Tazón para Dos de antes de separar negocios. Se conservan como respaldo de solo lectura
+//    para sus miembros una vez existe negocios/tazon-para-dos.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -49,57 +54,69 @@ service cloud.firestore {
       return esAdmin() && sesionVerificada();
     }
 
-    // ---------------- Permisos ----------------
-
-    function esTitular() {
-      return perfil().rol == 'principal';
-    }
-
-    function puede(permiso) {
-      return esTitular() || perfil().get('permisos', {}).get(permiso, false) == true;
-    }
-
     // Campos del sello de auditoría que se agregan a cada documento
     function camposSello() {
       return ['modificadoPor', 'modificadoPorNombre', 'modificadoEn', 'auditoriaId'];
     }
 
-    // La modificación solo toca los campos indicados (más el sello)
     function soloCambia(campos) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos.concat(camposSello()));
     }
 
-    // ---------------- Auditoría ----------------
+    // ---------------- Negocios y miembros ----------------
 
-    // Crear/modificar: el documento lleva el sello y existe su registro de auditoría en esta misma operación
-    function auditado() {
-      let registro = getAfter(/databases/$(database)/documents/auditoria/$(request.resource.data.auditoriaId)).data;
+    function rutaMiembro(nid) {
+      return /databases/$(database)/documents/negocios/$(nid)/miembros/$(request.auth.uid);
+    }
+
+    function esMiembro(nid) {
+      return request.auth != null && exists(rutaMiembro(nid));
+    }
+
+    function miembro(nid) {
+      return get(rutaMiembro(nid)).data;
+    }
+
+    function miembroVerificado(nid) {
+      return esMiembro(nid) && sesionVerificada();
+    }
+
+    function esTitularDe(nid) {
+      return miembro(nid).rol == 'titular';
+    }
+
+    function puedeEn(nid, permiso) {
+      return esTitularDe(nid) || miembro(nid).get('permisos', {}).get(permiso, false) == true;
+    }
+
+    // Crear/modificar: el documento lleva el sello y existe su registro de auditoría del negocio
+    function auditadoEn(nid) {
+      let registro = getAfter(/databases/$(database)/documents/negocios/$(nid)/auditoria/$(request.resource.data.auditoriaId)).data;
       return request.resource.data.modificadoPor == request.auth.uid
         && request.resource.data.modificadoEn == request.time
         && registro.uid == request.auth.uid
         && registro.fecha == request.time;
     }
 
-    // Eliminar: existe auditoria/eliminar_{coleccion}_{id} creado en esta misma operación
-    function eliminacionAuditada(coleccion, id) {
-      let registro = getAfter(/databases/$(database)/documents/auditoria/$('eliminar_' + coleccion + '_' + id)).data;
+    // Eliminar: existe negocios/{nid}/auditoria/eliminar_{coleccion}_{id} creado en esta operación
+    function eliminacionAuditadaEn(nid, coleccion, id) {
+      let registro = getAfter(/databases/$(database)/documents/negocios/$(nid)/auditoria/$('eliminar_' + coleccion + '_' + id)).data;
       return registro.uid == request.auth.uid && registro.fecha == request.time;
     }
 
-    function escribirConPermiso(permiso) {
-      return adminVerificado() && puede(permiso) && auditado();
+    function escribirEn(nid, permiso) {
+      return miembroVerificado(nid) && puedeEn(nid, permiso) && auditadoEn(nid);
     }
 
-    function eliminarConPermiso(permiso, coleccion, id) {
-      return adminVerificado() && puede(permiso) && eliminacionAuditada(coleccion, id);
+    function eliminarEn(nid, permiso, coleccion, id) {
+      return miembroVerificado(nid) && puedeEn(nid, permiso) && eliminacionAuditadaEn(nid, coleccion, id);
     }
 
     // ---------------- Colecciones de seguridad (las maneja el servidor) ----------------
 
+    // Cuenta habilitada en la app: cada uno ve la suya
     match /admins/{uid} {
-      allow read: if esServidor()
-        || (request.auth != null && request.auth.uid == uid)
-        || adminVerificado();
+      allow read: if esServidor() || (request.auth != null && request.auth.uid == uid);
       allow write: if esServidor();
     }
 
@@ -117,69 +134,101 @@ service cloud.firestore {
       allow read, write: if esServidor();
     }
 
-    // Registro de auditoría: se puede leer y crear (a nombre propio y con la hora del servidor),
-    // nunca editar ni borrar.
-    match /auditoria/{id} {
-      allow read: if adminVerificado();
-      allow create: if esServidor() || (
-        adminVerificado()
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.nombre == perfil().get('nombre', '')
-        && request.resource.data.fecha == request.time
+    // ---------------- Negocios ----------------
+
+    match /negocios/{nid} {
+      allow read: if esServidor() || miembroVerificado(nid);
+      allow create, delete: if esServidor();
+      // El titular ajusta nombre, color y reparto (queda en la auditoría del negocio)
+      allow update: if esServidor() || (
+        miembroVerificado(nid) && esTitularDe(nid) && auditadoEn(nid)
+        && soloCambia(['nombre', 'color', 'porcentajeAhorro', 'numeroSocios', 'migrado'])
       );
-      allow update, delete: if false;
+
+      match /miembros/{uid} {
+        allow read: if esServidor() || miembroVerificado(nid) || (request.auth != null && request.auth.uid == uid);
+        allow write: if esServidor();
+      }
+
+      match /auditoria/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create: if esServidor() || (
+          miembroVerificado(nid)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.nombre == perfil().get('nombre', '')
+          && request.resource.data.fecha == request.time
+        );
+        allow update, delete: if false;
+      }
+
+      // Telegram y otras configuraciones: los miembros las leen; el titular las cambia
+      match /config/{id} {
+        allow read: if miembroVerificado(nid);
+        allow write: if miembroVerificado(nid) && esTitularDe(nid) && auditadoEn(nid);
+      }
+
+      match /ventas/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create: if escribirEn(nid, 'ventas');
+        allow update: if escribirEn(nid, 'ventas_editar')
+          || (escribirEn(nid, 'clientes') && soloCambia(['pagado', 'medioPago', 'fechaPago', 'clienteId', 'cliente']));
+        allow delete: if eliminarEn(nid, 'ventas_editar', 'ventas', id);
+      }
+
+      match /productos/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create: if escribirEn(nid, 'inventario');
+        allow update: if escribirEn(nid, 'inventario')
+          || (escribirEn(nid, 'ventas') && soloCambia(['lotes', 'stock']));
+        allow delete: if eliminarEn(nid, 'inventario', 'productos', id);
+      }
+
+      match /categorias/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create, update: if escribirEn(nid, 'inventario');
+        allow delete: if eliminarEn(nid, 'inventario', 'categorias', id);
+      }
+
+      match /clientes/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create: if escribirEn(nid, 'clientes') || escribirEn(nid, 'ventas');
+        allow update: if escribirEn(nid, 'clientes');
+        allow delete: if eliminarEn(nid, 'clientes', 'clientes', id);
+      }
+
+      match /gastos/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create, update: if escribirEn(nid, 'finanzas');
+        allow delete: if eliminarEn(nid, 'finanzas', 'gastos', id);
+      }
+
+      match /caja_base/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create, update: if escribirEn(nid, 'finanzas');
+        allow delete: if eliminarEn(nid, 'finanzas', 'caja_base', id);
+      }
     }
 
-    // ---------------- Datos del negocio ----------------
+    // ---------------- Datos antiguos de Tazón para Dos (raíz) ----------------
+    // Antes de separar negocios funcionan como siempre (para poder copiarlos).
+    // Después, quedan de solo lectura para los miembros de Tazón para Dos.
 
-    match /ventas/{id} {
-      allow read: if adminVerificado();
-      allow create: if escribirConPermiso('ventas');
-      // Editar ventas, o (con permiso de clientes) solo cobrar / reasignar al cliente
-      allow update: if escribirConPermiso('ventas_editar')
-        || (escribirConPermiso('clientes') && soloCambia(['pagado', 'medioPago', 'fechaPago', 'clienteId', 'cliente']));
-      allow delete: if eliminarConPermiso('ventas_editar', 'ventas', id);
+    function tazonSeparado() {
+      return exists(/databases/$(database)/documents/negocios/tazon-para-dos);
     }
 
-    match /productos/{id} {
-      allow read: if adminVerificado();
-      allow create: if escribirConPermiso('inventario');
-      // Al vender se descuenta el stock: basta el permiso de ventas para tocar solo lotes/stock
-      allow update: if escribirConPermiso('inventario')
-        || (escribirConPermiso('ventas') && soloCambia(['lotes', 'stock']));
-      allow delete: if eliminarConPermiso('inventario', 'productos', id);
+    function leerAntiguo() {
+      return adminVerificado() && (!tazonSeparado() || esMiembro('tazon-para-dos'));
     }
 
-    match /categorias/{id} {
-      allow read: if adminVerificado();
-      allow create, update: if escribirConPermiso('inventario');
-      allow delete: if eliminarConPermiso('inventario', 'categorias', id);
+    match /auditoria/{id} {
+      allow read: if leerAntiguo();
+      allow update, delete, create: if false;
     }
 
-    match /clientes/{id} {
-      allow read: if adminVerificado();
-      // Al fiar a un cliente nuevo se registra automáticamente: basta el permiso de ventas
-      allow create: if escribirConPermiso('clientes') || escribirConPermiso('ventas');
-      allow update: if escribirConPermiso('clientes');
-      allow delete: if eliminarConPermiso('clientes', 'clientes', id);
-    }
-
-    match /gastos/{id} {
-      allow read: if adminVerificado();
-      allow create, update: if escribirConPermiso('finanzas');
-      allow delete: if eliminarConPermiso('finanzas', 'gastos', id);
-    }
-
-    match /caja_base/{id} {
-      allow read: if adminVerificado();
-      allow create, update: if escribirConPermiso('finanzas');
-      allow delete: if eliminarConPermiso('finanzas', 'caja_base', id);
-    }
-
-    // Configuración (token de Telegram): todos la leen, solo el titular la cambia (desde la consola)
-    match /config/{id} {
-      allow read: if adminVerificado();
-      allow write: if false;
+    match /{coleccion}/{documento=**} {
+      allow read: if leerAntiguo()
+        && coleccion in ['productos', 'ventas', 'categorias', 'clientes', 'gastos', 'caja_base', 'config'];
     }
   }
 }

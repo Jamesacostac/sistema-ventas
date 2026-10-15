@@ -1,47 +1,44 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
-// El token y los Chat IDs de los socios NO van en el código: se guardan en
-// Firestore en el documento config/telegram, que solo pueden leer los
-// administradores con sesión iniciada (ver firestore.rules).
-//   config/telegram = { token: "123:ABC...", chatIds: ["111", "222", "333"] }
-let configCache = null;
+// Cada negocio tiene su propia configuración de Telegram en negocios/{id}/config/telegram,
+// que solo pueden leer sus miembros con sesión verificada (ver firestore.rules) y que el
+// titular cambia desde Equipo → Configuración.
+//   { token: "123:ABC...", chatIds: ["111", "222", "333"] }
+const cache = new Map();
 
-const obtenerConfigTelegram = async () => {
-  if (configCache) return configCache;
+const obtenerConfigTelegram = async (negocioId) => {
+  if (!negocioId) return null;
+  if (cache.has(negocioId)) return cache.get(negocioId);
 
   try {
-    const snap = await getDoc(doc(db, 'config', 'telegram'));
-    if (!snap.exists()) {
-      console.error("Falta crear el documento config/telegram en Firestore.");
-      return null;
-    }
-    const { token, chatIds } = snap.data();
-    if (!token || !Array.isArray(chatIds)) {
-      console.error("El documento config/telegram debe tener 'token' y 'chatIds'.");
-      return null;
-    }
-    configCache = { token, chatIds };
-    return configCache;
+    const snap = await getDoc(doc(db, 'negocios', negocioId, 'config', 'telegram'));
+    const datos = snap.exists() ? snap.data() : null;
+    const config = datos?.token && Array.isArray(datos.chatIds) && datos.chatIds.length
+      ? { token: datos.token, chatIds: datos.chatIds.filter(Boolean) }
+      : null;
+    cache.set(negocioId, config);
+    return config;
   } catch (error) {
     console.error("No se pudo leer la configuración de Telegram:", error);
     return null;
   }
 };
 
-export const limpiarConfigTelegram = () => {
-  configCache = null;
+export const limpiarConfigTelegram = (negocioId) => {
+  if (negocioId) cache.delete(negocioId);
+  else cache.clear();
 };
 
-export const enviarMensajeTelegram = async (mensajeTexto) => {
-  const config = await obtenerConfigTelegram();
+export const telegramConfigurado = async (negocioId) => !!(await obtenerConfigTelegram(negocioId));
+
+export const enviarMensajeTelegram = async (mensajeTexto, negocioId) => {
+  const config = await obtenerConfigTelegram(negocioId);
   if (!config) return false;
 
   let exitoGlobal = true;
 
   for (const chatId of config.chatIds) {
-    if (!chatId) continue;
-
     try {
       const url = `https://api.telegram.org/bot${config.token}/sendMessage`;
       const response = await fetch(url, {
@@ -68,20 +65,21 @@ export const enviarMensajeTelegram = async (mensajeTexto) => {
   return exitoGlobal;
 };
 
-// Función para obtener los últimos mensajes enviados al Bot
-let ultimoUpdateId = 0;
+// Últimos mensajes enviados al bot del negocio (para responder "cierre", "stock"...)
+const ultimoUpdatePorToken = new Map();
 
-export const obtenerUltimosMensajesTelegram = async () => {
-  const config = await obtenerConfigTelegram();
+export const obtenerUltimosMensajesTelegram = async (negocioId) => {
+  const config = await obtenerConfigTelegram(negocioId);
   if (!config) return [];
 
   try {
-    const url = `https://api.telegram.org/bot${config.token}/getUpdates?offset=${ultimoUpdateId + 1}`;
+    const ultimo = ultimoUpdatePorToken.get(config.token) || 0;
+    const url = `https://api.telegram.org/bot${config.token}/getUpdates?offset=${ultimo + 1}`;
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.ok && data.result.length > 0) {
-      ultimoUpdateId = data.result[data.result.length - 1].update_id;
+      ultimoUpdatePorToken.set(config.token, data.result[data.result.length - 1].update_id);
       return data.result;
     }
   } catch (error) {

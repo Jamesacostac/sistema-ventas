@@ -6,6 +6,8 @@ import { db } from './firebase';
 import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegram';
 import { cerrarSesion } from './servidor';
 import Perfil from './Perfil';
+import ConfigNegocio from './ConfigNegocio';
+import { colorNegocio, ID_TAZON } from './negociosComun';
 import Socios from './Socios';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -19,7 +21,7 @@ import {
   CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
   HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
-  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X, Settings, PlusCircle
 } from 'lucide-react';
 
 // Fecha AAAA-MM-DD con la hora de Colombia. Antes se usaba la hora UTC y lo que se
@@ -62,6 +64,12 @@ const AvisoSinPermiso = ({ accion }) => (
 // "Maira · 14 oct, 3:20 p. m." a partir del sello de auditoría del documento
 const firmaCambio = (item) => {
   if (!item?.modificadoPorNombre) return null;
+  // Si el registro no se ha tocado desde que se copió, se muestra quién lo hizo originalmente
+  const sinCambiosDesdeCopia = item.firmaAnterior?.nombre && item.copiadoEn?.toMillis?.() === item.modificadoEn?.toMillis?.();
+  if (sinCambiosDesdeCopia) {
+    const f = item.firmaAnterior.fecha?.toDate?.();
+    return `${item.firmaAnterior.nombre}${f ? ' · ' + f.toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}`;
+  }
   const fecha = item.modificadoEn?.toDate?.();
   const hora = fecha
     ? fecha.toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
@@ -74,7 +82,15 @@ const FirmaCambio = ({ item }) => {
   return texto ? <span className="block text-[10px] text-slate-400 font-normal whitespace-nowrap" title="Último cambio">✎ {texto}</span> : null;
 };
 
-export default function App({ usuario, onSesionVencida }) {
+export default function App({ usuario, onSesionVencida, negocioId, negocio, negocios = [], cambiarNegocio }) {
+  // Todo se guarda dentro del negocio actual: negocios/{negocioId}/...
+  const col = (nombre) => collection(db, 'negocios', negocioId, nombre);
+  const docN = (nombre, id) => doc(db, 'negocios', negocioId, nombre, id);
+  // Reparto configurable por negocio (Equipo → Configuración)
+  const porcentajeAhorro = Math.min(100, Math.max(0, Number(negocio?.porcentajeAhorro ?? 15)));
+  const numeroSocios = Math.max(1, Math.round(Number(negocio?.numeroSocios ?? 3)));
+  // Los avisos de Telegram llevan el nombre del negocio
+  const avisarTelegram = (texto) => enviarMensajeTelegram(`🏪 <b>${negocio?.nombre || ''}</b>\n` + texto, negocioId);
   const [pestana, setPestana] = useState('ventas');
   const [productos, setProductos] = useState([]);
   const [ventas, setVentas] = useState([]);
@@ -84,14 +100,15 @@ export default function App({ usuario, onSesionVencida }) {
   const [perfil, setPerfil] = useState(null);
 
   // Rangos de edición: el titular puede todo; los socios según sus permisos
-  const puede = (permiso) => tienePermiso(perfil, permiso);
+  const [miembro, setMiembro] = useState(null);
+  const puede = (permiso) => tienePermiso(miembro, permiso);
   const exigir = (permiso, accion) => {
     if (puede(permiso)) return true;
     alert(`🔒 No tienes permiso para ${accion}.\n\nPídele al titular (o a quien gestione los socios) que te asigne ese rango.`);
     return false;
   };
   // Todo cambio se registra con el nombre del usuario y la hora (ver auditoria.js)
-  const operacion = (accion, detalle) => operacionAuditada(usuario, perfil, accion, detalle);
+  const operacion = (accion, detalle) => operacionAuditada(usuario, perfil, accion, detalle, negocioId);
   const [cajaInicial, setCajaInicial] = useState(0);
   const [cajaDocId, setCajaDocId] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -163,35 +180,39 @@ export default function App({ usuario, onSesionVencida }) {
       setCargando(false);
     };
 
-    const unsubProductos = onSnapshot(collection(db, 'productos'), (snapshot) => {
+    const unsubProductos = onSnapshot(col('productos'), (snapshot) => {
       setProductos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     }, manejarError);
 
-    const unsubVentas = onSnapshot(collection(db, 'ventas'), (snapshot) => {
+    const unsubVentas = onSnapshot(col('ventas'), (snapshot) => {
       const lista = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setVentas(lista.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
       setCargando(false);
     }, manejarError);
 
-    const unsubCategorias = onSnapshot(collection(db, 'categorias'), (snapshot) => {
+    const unsubCategorias = onSnapshot(col('categorias'), (snapshot) => {
       setCategorias(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     }, manejarError);
 
-    const unsubGastos = onSnapshot(collection(db, 'gastos'), (snapshot) => {
+    const unsubGastos = onSnapshot(col('gastos'), (snapshot) => {
       const listaG = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setGastos(listaG.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
+    }, manejarError);
+
+    const unsubMiembro = onSnapshot(doc(db, 'negocios', negocioId, 'miembros', usuario.uid), (snapshot) => {
+      setMiembro(snapshot.exists() ? snapshot.data() : null);
     }, manejarError);
 
     const unsubPerfil = onSnapshot(doc(db, 'admins', usuario.uid), (snapshot) => {
       setPerfil(snapshot.exists() ? snapshot.data() : null);
     }, manejarError);
 
-    const unsubClientes = onSnapshot(collection(db, 'clientes'), (snapshot) => {
+    const unsubClientes = onSnapshot(col('clientes'), (snapshot) => {
       const listaC = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setClientes(listaC.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es')));
     }, manejarError);
 
-    const unsubCaja = onSnapshot(collection(db, 'caja_base'), (snapshot) => {
+    const unsubCaja = onSnapshot(col('caja_base'), (snapshot) => {
       if (!snapshot.empty) {
         const docCaja = snapshot.docs[0];
         setCajaInicial(docCaja.data().monto || 0);
@@ -208,6 +229,7 @@ export default function App({ usuario, onSesionVencida }) {
       unsubCategorias();
       unsubGastos();
       unsubPerfil();
+      unsubMiembro();
       unsubClientes();
       unsubCaja();
     };
@@ -216,7 +238,7 @@ export default function App({ usuario, onSesionVencida }) {
   // Listener Telegram
   useEffect(() => {
     const intervalo = setInterval(async () => {
-      const mensajes = await obtenerUltimosMensajesTelegram();
+      const mensajes = await obtenerUltimosMensajesTelegram(negocioId);
       if (!mensajes || mensajes.length === 0) return;
 
       for (const update of mensajes) {
@@ -273,9 +295,9 @@ export default function App({ usuario, onSesionVencida }) {
     const totalReposicion = ventasPagadas.reduce((acc, v) => acc + v.costoTotal, 0);
     const gananciaBruta = ventasPagadas.reduce((acc, v) => acc + v.ganancia, 0);
 
-    const ahorro = gananciaBruta * 0.15;
+    const ahorro = gananciaBruta * porcentajeAhorro / 100;
     const gananciaRepartible = gananciaBruta - ahorro;
-    const pagoSocio = gananciaRepartible / 3;
+    const pagoSocio = gananciaRepartible / numeroSocios;
 
     const fechaActual = new Date().toLocaleDateString('es-ES', { 
       year: 'numeric', month: 'long', day: 'numeric' 
@@ -286,12 +308,12 @@ export default function App({ usuario, onSesionVencida }) {
       `📅 Fecha: ${fechaActual}\n\n` +
       `💰 <b>Ventas pagadas del período:</b> $${totalIngresos.toLocaleString()}\n` +
       `🔄 <b>Fondo Reposición:</b> $${totalReposicion.toLocaleString()}\n` +
-      `🌱 <b>Fondo Ahorro (15%):</b> $${ahorro.toLocaleString()}\n` +
-      `👥 <b>Pago por Socio (3):</b> $${pagoSocio.toLocaleString(undefined, {maximumFractionDigits: 0})}\n\n` +
+      `🌱 <b>Fondo Ahorro (${porcentajeAhorro}%):</b> $${ahorro.toLocaleString()}\n` +
+      `👥 <b>Pago por Socio (${numeroSocios}):</b> $${pagoSocio.toLocaleString(undefined, {maximumFractionDigits: 0})}\n\n` +
       `🛒 Total ventas registradas: ${ventasPagadas.length}\n` +
       `🧾 <b>Por cobrar (fiados):</b> $${(listaVentas || ventas).filter(v => !v.pagado).reduce((acc, v) => acc + v.total, 0).toLocaleString()}`;
 
-    return await enviarMensajeTelegram(reporteTexto);
+    return await avisarTelegram(reporteTexto);
   };
 
   const generarYEnviarAlertaStock = async (listaProductos) => {
@@ -303,7 +325,7 @@ export default function App({ usuario, onSesionVencida }) {
     });
 
     if (agotados.length === 0 && porAgotarse.length === 0) {
-      return await enviarMensajeTelegram("✅ <b>Estado del Inventario:</b> Todo el inventario está en niveles óptimos.");
+      return await avisarTelegram("✅ <b>Estado del Inventario:</b> Todo el inventario está en niveles óptimos.");
     }
 
     let textoAlerta = `🚨 <b>REPORTE DE PRODUCTOS A REPONER</b> 🚨\n\n`;
@@ -321,7 +343,7 @@ export default function App({ usuario, onSesionVencida }) {
     }
     textoAlerta += `🛒 <i>Por favor realizar pedido de compras.</i>`;
 
-    return await enviarMensajeTelegram(textoAlerta);
+    return await avisarTelegram(textoAlerta);
   };
 
   // ==================== CLIENTES Y FIADOS ====================
@@ -401,18 +423,18 @@ export default function App({ usuario, onSesionVencida }) {
       if (editandoClienteId) {
         const anterior = clientes.find(c => c.id === editandoClienteId);
         const op = operacion('Cliente editado', anterior?.nombre !== nombre ? `${anterior?.nombre} → ${nombre}` : nombre);
-        op.actualizar(doc(db, 'clientes', editandoClienteId), datos, anterior);
+        op.actualizar(docN('clientes', editandoClienteId), datos, anterior);
 
         // Si cambió el nombre, se actualiza también en sus ventas para que el historial coincida
         if (anterior && anterior.nombre !== nombre) {
           ventas
             .filter(v => clienteDeVenta(v)?.id === editandoClienteId)
-            .forEach(v => op.actualizar(doc(db, 'ventas', v.id), { cliente: nombre, clienteId: editandoClienteId }, v));
+            .forEach(v => op.actualizar(docN('ventas', v.id), { cliente: nombre, clienteId: editandoClienteId }, v));
         }
         await op.guardar();
       } else {
         const op = operacion('Cliente registrado', nombre);
-        op.crear(doc(collection(db, 'clientes')), { ...datos, creadoEn: Date.now() });
+        op.crear(doc(col('clientes')), { ...datos, creadoEn: Date.now() });
         await op.guardar();
       }
       cancelarEdicionCliente();
@@ -435,7 +457,7 @@ export default function App({ usuario, onSesionVencida }) {
     if (!confirm(`¿Eliminar al cliente "${cuenta.nombre}"? Sus ventas pasadas se conservan en el historial.`)) return;
     try {
       const op = operacion('Cliente eliminado', cuenta.nombre);
-      op.eliminar(doc(db, 'clientes', cuenta.cliente.id), cuenta.cliente);
+      op.eliminar(docN('clientes', cuenta.cliente.id), cuenta.cliente);
       await op.guardar();
     } catch (error) {
       alert("Error al eliminar el cliente: " + error.message);
@@ -480,8 +502,8 @@ export default function App({ usuario, onSesionVencida }) {
         cuenta.cliente ? 'Clientes fusionados' : 'Ventas asignadas a cliente',
         `${cuenta.nombre} → ${destino.nombre} (${ventasMover.length} ventas, deuda $${cuenta.deuda.toLocaleString()})`
       );
-      ventasMover.forEach(v => op.actualizar(doc(db, 'ventas', v.id), { clienteId: destino.id, cliente: destino.nombre }, v));
-      if (cuenta.cliente) op.eliminar(doc(db, 'clientes', cuenta.cliente.id), cuenta.cliente);
+      ventasMover.forEach(v => op.actualizar(docN('ventas', v.id), { clienteId: destino.id, cliente: destino.nombre }, v));
+      if (cuenta.cliente) op.eliminar(docN('clientes', cuenta.cliente.id), cuenta.cliente);
       await op.guardar();
 
       setFusionCuentaKey(null);
@@ -501,8 +523,8 @@ export default function App({ usuario, onSesionVencida }) {
     try {
       const nombre = cuenta.nombre.trim().replace(/\s+/g, ' ');
       const op = operacion('Cliente registrado', `${nombre} (con ${cuenta.pendientes.length} fiados antiguos)`);
-      const refCliente = op.crear(doc(collection(db, 'clientes')), { nombre, telefono: '', nota: '', creadoEn: Date.now() });
-      cuenta.pendientes.forEach(v => op.actualizar(doc(db, 'ventas', v.id), { clienteId: refCliente.id, cliente: nombre }, v));
+      const refCliente = op.crear(doc(col('clientes')), { nombre, telefono: '', nota: '', creadoEn: Date.now() });
+      cuenta.pendientes.forEach(v => op.actualizar(docN('ventas', v.id), { clienteId: refCliente.id, cliente: nombre }, v));
       await op.guardar();
     } catch (error) {
       alert("Error al registrar el cliente: " + error.message);
@@ -516,7 +538,7 @@ export default function App({ usuario, onSesionVencida }) {
     const total = ventasASaldar.reduce((acc, v) => acc + v.total, 0);
     const op = operacion('Fiado cobrado', `${nombreCliente || ventasASaldar[0]?.cliente} — $${total.toLocaleString()} (${medioPago}, ${ventasASaldar.length} venta/s)`);
     ventasASaldar.forEach(v => op.actualizar(
-      doc(db, 'ventas', v.id),
+      docN('ventas', v.id),
       { pagado: true, medioPago, fechaPago: fechaLocal() },
       v
     ));
@@ -531,7 +553,7 @@ export default function App({ usuario, onSesionVencida }) {
     setProcesandoCuenta(true);
     try {
       await saldarVentas(cuenta.pendientes, medioPagoAbono, cuenta.nombre);
-      enviarMensajeTelegram(
+      avisarTelegram(
         `💵 <b>DEUDA SALDADA</b>\n\n` +
         `👤 Cliente: <b>${cuenta.nombre}</b>\n` +
         `💰 Monto: $${cuenta.deuda.toLocaleString()} (${medioPagoAbono})\n` +
@@ -708,7 +730,7 @@ export default function App({ usuario, onSesionVencida }) {
       : formVenta.medioPago;
     const fecha = fechaLocal();
     const creadoEn = Date.now();
-    const pedidoId = doc(collection(db, 'ventas')).id;
+    const pedidoId = doc(col('ventas')).id;
 
     setGuardandoVenta(true);
     try {
@@ -723,7 +745,7 @@ export default function App({ usuario, onSesionVencida }) {
       // nuevo, se registra el cliente en la misma operación.
       let clienteRegistrado = clientePrevio;
       if (!clienteRegistrado && !formVenta.pagado) {
-        const refCliente = op.crear(doc(collection(db, 'clientes')), { nombre: nombreCliente, telefono: '', nota: '', creadoEn });
+        const refCliente = op.crear(doc(col('clientes')), { nombre: nombreCliente, telefono: '', nota: '', creadoEn });
         clienteRegistrado = { id: refCliente.id, nombre: nombreCliente };
       }
       const cliente = clienteRegistrado?.nombre || nombreCliente || 'Cliente General';
@@ -732,7 +754,7 @@ export default function App({ usuario, onSesionVencida }) {
       carrito.forEach(item => {
         const total = item.precio * item.cantidad;
         const costoTotal = item.costo * item.cantidad;
-        op.crear(doc(collection(db, 'ventas')), {
+        op.crear(doc(col('ventas')), {
           fecha,
           cliente,
           clienteId,
@@ -754,7 +776,7 @@ export default function App({ usuario, onSesionVencida }) {
         const stock = lotes.reduce((acc, l) => acc + l.cantidad, 0);
         stockFinal[prodId] = stock;
         const antes = productos.find(p => p.id === prodId);
-        op.actualizar(doc(db, 'productos', prodId), { lotes, stock }, antes && { lotes: antes.lotes, stock: antes.stock });
+        op.actualizar(docN('productos', prodId), { lotes, stock }, antes && { lotes: antes.lotes, stock: antes.stock });
       });
 
       await op.guardar();
@@ -764,7 +786,7 @@ export default function App({ usuario, onSesionVencida }) {
         if (stock > 3) return;
         const prod = productos.find(p => p.id === prodId);
         const estadoTexto = stock === 0 ? "❌ <b>TOTALMENTE AGOTADO</b>" : `⚠️ <b>QUEDAN SOLO ${stock} UNIDADES</b>`;
-        enviarMensajeTelegram(
+        avisarTelegram(
           `🚨 <b>ALERTA DE REPOSICIÓN DE INVENTARIO</b> 🚨\n\n` +
           `📦 Producto: <b>${prod?.nombre || prodId}</b>\n` +
           `📊 Estado: ${estadoTexto}\n` +
@@ -846,7 +868,7 @@ export default function App({ usuario, onSesionVencida }) {
         }
 
         const op = operacion('Producto editado', detalle);
-        op.actualizar(doc(db, 'productos', editandoProductoId), cambios, prodObj);
+        op.actualizar(docN('productos', editandoProductoId), cambios, prodObj);
         await op.guardar();
 
         setEditandoProductoId(null);
@@ -880,7 +902,7 @@ export default function App({ usuario, onSesionVencida }) {
           const nuevoStockTotal = nuevosLotes.reduce((acc, l) => acc + l.cantidad, 0);
 
           const op = operacion('Lote agregado', `${prodExistente.nombre} (${formProducto.variante}) x${cant}, vence ${formProducto.vencimiento}`);
-          op.actualizar(doc(db, 'productos', prodExistente.id), { lotes: nuevosLotes, stock: nuevoStockTotal }, prodExistente);
+          op.actualizar(docN('productos', prodExistente.id), { lotes: nuevosLotes, stock: nuevoStockTotal }, prodExistente);
           await op.guardar();
         } else {
           if (!formProducto.nombre || !formProducto.costo || !formProducto.precio) {
@@ -888,7 +910,7 @@ export default function App({ usuario, onSesionVencida }) {
           }
 
           const op = operacion('Producto creado', `${formProducto.nombre.trim()} — costo $${formProducto.costo}, precio $${formProducto.precio}, ${cant} un.`);
-          op.crear(doc(collection(db, 'productos')), {
+          op.crear(doc(col('productos')), {
             nombre: formProducto.nombre.trim(),
             costo: Number(formProducto.costo),
             precio: Number(formProducto.precio),
@@ -940,7 +962,7 @@ export default function App({ usuario, onSesionVencida }) {
 
       try {
         const op = operacion('Lote editado', `${prod.nombre} (${lote.variante}): ${lote.cantidad} → ${nuevaCant} un., vence ${lote.vencimiento} → ${nuevaFecha}`);
-        op.actualizar(doc(db, 'productos', prodId), {
+        op.actualizar(docN('productos', prodId), {
           lotes: lotesModificados,
           stock: nuevoStockTotal,
           vencimiento: lotesModificados[0]?.vencimiento || 'N/A'
@@ -965,7 +987,7 @@ export default function App({ usuario, onSesionVencida }) {
 
     try {
       const op = operacion('Lote eliminado', `${prod.nombre} (${lote?.variante}) x${lote?.cantidad}, vence ${lote?.vencimiento}`);
-      op.actualizar(doc(db, 'productos', prodId), { lotes: lotesActualizados, stock: nuevoStockTotal }, prod);
+      op.actualizar(docN('productos', prodId), { lotes: lotesActualizados, stock: nuevoStockTotal }, prod);
       await op.guardar();
     } catch (error) {
       alert("Error al eliminar lote: " + error.message);
@@ -982,9 +1004,9 @@ export default function App({ usuario, onSesionVencida }) {
       const op = operacion('Efectivo base ajustado', `$${cajaInicial.toLocaleString()} → $${monto.toLocaleString()}`);
       const datos = { monto, fechaActualizacion: new Date().toISOString() };
       if (cajaDocId) {
-        op.actualizar(doc(db, 'caja_base', cajaDocId), datos, { monto: cajaInicial });
+        op.actualizar(docN('caja_base', cajaDocId), datos, { monto: cajaInicial });
       } else {
-        op.crear(doc(collection(db, 'caja_base')), datos);
+        op.crear(doc(col('caja_base')), datos);
       }
       await op.guardar();
       setNuevoEfectivoBaseInput('');
@@ -1028,13 +1050,13 @@ export default function App({ usuario, onSesionVencida }) {
       if (editandoGastoId) {
         const anterior = gastos.find(g => g.id === editandoGastoId);
         const op = operacion('Gasto editado', `${datos.concepto}: $${(anterior?.monto || 0).toLocaleString()} → $${monto.toLocaleString()}`);
-        op.actualizar(doc(db, 'gastos', editandoGastoId), datos, anterior);
+        op.actualizar(docN('gastos', editandoGastoId), datos, anterior);
         await op.guardar();
         setEditandoGastoId(null);
         alert("Gasto actualizado con éxito.");
       } else {
         const op = operacion('Gasto registrado', `${datos.concepto} (${datos.tipo}) — $${monto.toLocaleString()}`);
-        op.crear(doc(collection(db, 'gastos')), {
+        op.crear(doc(col('gastos')), {
           ...datos,
           fecha: fechaLocal(),
           creadoEn: Date.now()
@@ -1054,7 +1076,7 @@ export default function App({ usuario, onSesionVencida }) {
     const gasto = gastos.find(g => g.id === id);
     try {
       const op = operacion('Gasto eliminado', `${gasto?.concepto} — $${(gasto?.monto || 0).toLocaleString()}`);
-      op.eliminar(doc(db, 'gastos', id), gasto);
+      op.eliminar(docN('gastos', id), gasto);
       await op.guardar();
     } catch (error) {
       alert("Error al eliminar el gasto: " + error.message);
@@ -1084,7 +1106,7 @@ export default function App({ usuario, onSesionVencida }) {
       const fechaCierre = new Date().toISOString();
       const cierreId = `cierre_${Date.now()}`;
       const op = operacion('Cierre de caja', `${porCerrar.length} ventas por ${dinero(total)} (efectivo ${dinero(efectivo)})`);
-      porCerrar.forEach(v => op.actualizar(doc(db, 'ventas', v.id), { archivada: true, cierreId, fechaCierre }, v));
+      porCerrar.forEach(v => op.actualizar(docN('ventas', v.id), { archivada: true, cierreId, fechaCierre }, v));
       await op.guardar();
       alert("Caja cerrada. Las ventas quedaron archivadas y el efectivo en caja se mantiene.");
     } catch (error) {
@@ -1098,7 +1120,7 @@ export default function App({ usuario, onSesionVencida }) {
     if (!exigir('inventario', 'crear categorías')) return;
     try {
       const op = operacion('Categoría creada', nuevaCategoria.trim());
-      op.crear(doc(collection(db, 'categorias')), { nombre: nuevaCategoria.trim() });
+      op.crear(doc(col('categorias')), { nombre: nuevaCategoria.trim() });
       await op.guardar();
       setNuevaCategoria('');
     } catch (error) {
@@ -1112,7 +1134,7 @@ export default function App({ usuario, onSesionVencida }) {
     const categoria = categorias.find(c => c.id === id);
     try {
       const op = operacion('Categoría eliminada', categoria?.nombre || '');
-      op.eliminar(doc(db, 'categorias', id), categoria);
+      op.eliminar(docN('categorias', id), categoria);
       await op.guardar();
     } catch (error) {
       alert("Error al eliminar la categoría: " + error.message);
@@ -1125,7 +1147,7 @@ export default function App({ usuario, onSesionVencida }) {
     const prod = productos.find(p => p.id === id);
     try {
       const op = operacion('Producto eliminado', `${prod?.nombre} (${getStockTotalProducto(prod || {})} un.)`);
-      op.eliminar(doc(db, 'productos', id), prod);
+      op.eliminar(docN('productos', id), prod);
       await op.guardar();
     } catch (error) {
       alert("Error al eliminar el producto: " + error.message);
@@ -1140,7 +1162,7 @@ export default function App({ usuario, onSesionVencida }) {
         estadoActual ? 'Venta marcada como pendiente' : 'Venta marcada como pagada',
         `${venta?.cliente} — ${venta?.producto} $${(venta?.total || 0).toLocaleString()}`
       );
-      op.actualizar(doc(db, 'ventas', id), { pagado: !estadoActual }, venta);
+      op.actualizar(docN('ventas', id), { pagado: !estadoActual }, venta);
       await op.guardar();
     } catch (error) {
       alert("Error al cambiar el estado de pago: " + error.message);
@@ -1156,7 +1178,7 @@ export default function App({ usuario, onSesionVencida }) {
     if (!confirm("¿Eliminar esta venta?" + aviso)) return;
     try {
       const op = operacion('Venta eliminada', `${venta?.cliente} — ${venta?.producto} x${venta?.cantidad} $${(venta?.total || 0).toLocaleString()}`);
-      op.eliminar(doc(db, 'ventas', id), venta);
+      op.eliminar(docN('ventas', id), venta);
       await op.guardar();
     } catch (error) {
       alert("Error al eliminar la venta: " + error.message);
@@ -1215,7 +1237,7 @@ export default function App({ usuario, onSesionVencida }) {
       if (!p) return;
       const codigo = generarCodigoInterno(productos, reservados);
       reservados.push(codigo);
-      op.actualizar(doc(db, 'productos', id), { codigos: [codigo, ...codigosDe(p)] }, { codigos: codigosDe(p) });
+      op.actualizar(docN('productos', id), { codigos: [codigo, ...codigosDe(p)] }, { codigos: codigosDe(p) });
     });
     try {
       await op.guardar();
@@ -1251,8 +1273,8 @@ export default function App({ usuario, onSesionVencida }) {
     setCorrigiendoFechas(true);
     try {
       const op = operacion('Fechas corregidas (zona horaria)', `${ventasConFechaCorrida.length} ventas y ${gastosConFechaCorrida.length} gastos`);
-      ventasConFechaCorrida.forEach(v => op.actualizar(doc(db, 'ventas', v.id), { fecha: fechaCorrecta(v) }, { fecha: v.fecha }));
-      gastosConFechaCorrida.forEach(g => op.actualizar(doc(db, 'gastos', g.id), { fecha: fechaCorrecta(g) }, { fecha: g.fecha }));
+      ventasConFechaCorrida.forEach(v => op.actualizar(docN('ventas', v.id), { fecha: fechaCorrecta(v) }, { fecha: v.fecha }));
+      gastosConFechaCorrida.forEach(g => op.actualizar(docN('gastos', g.id), { fecha: fechaCorrecta(g) }, { fecha: g.fecha }));
       await op.guardar();
       alert('Listo: las fechas quedaron con el día correcto.');
     } catch (error) {
@@ -1276,9 +1298,9 @@ export default function App({ usuario, onSesionVencida }) {
   const totalReposicionDia = ventasPagadas.reduce((acc, v) => acc + v.costoTotal, 0);
   const gananciaBrutaDia = ventasPagadas.reduce((acc, v) => acc + v.ganancia, 0);
 
-  const fondoAhorro = gananciaBrutaDia * 0.15;
+  const fondoAhorro = gananciaBrutaDia * porcentajeAhorro / 100;
   const gananciaRepartible = gananciaBrutaDia - fondoAhorro;
-  const salarioPorSocio = gananciaRepartible / 3;
+  const salarioPorSocio = gananciaRepartible / numeroSocios;
 
   const totalGastosRegistrados = gastos.reduce((acc, g) => acc + g.monto, 0);
   const gastosEnReposiciones = gastos
@@ -1377,13 +1399,34 @@ export default function App({ usuario, onSesionVencida }) {
       `}</style>
 
       {/* Encabezado Principal */}
-      <header className="marca-cabecera mb-6 rounded-2xl print-card print:mb-4">
+      <header className="marca-cabecera mb-6 rounded-2xl print-card print:mb-4" style={{ backgroundColor: colorNegocio(negocio?.color) }}>
         <div className="flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 shrink-0" />
             <div className="min-w-0">
-              <p className="marca-eyebrow text-tinta/80 hidden sm:block">Tazón para Dos · Comestibles</p>
-              <h1 className="marca-titular text-base sm:text-xl md:text-2xl text-tinta leading-tight truncate">Ventas y Finanzas</h1>
+              <p className="marca-eyebrow text-tinta/80 hidden sm:block">Ventas y finanzas</p>
+              <h1 className="sr-only">{negocio?.nombre}</h1>
+              <MenuDesplegable
+                etiqueta={<span className="truncate">{negocio?.nombre}</span>}
+                claseBoton="flex items-center gap-1.5 max-w-full marca-titular text-base sm:text-xl md:text-2xl text-tinta leading-tight hover:opacity-80 no-print"
+              >
+                <MenuTitulo>Tus negocios</MenuTitulo>
+                {negocios.map(n => (
+                  <MenuItem
+                    key={n.id}
+                    icono={<span className="h-3.5 w-3.5 rounded-full border-2 border-tinta shrink-0" style={{ background: colorNegocio(n.color) }} />}
+                    onClick={() => cambiarNegocio(n.id)}
+                    activo={n.id === negocioId}
+                    detalle={n.rolPropio === 'titular' ? 'Titular' : 'Socio'}
+                  >
+                    {n.nombre}
+                  </MenuItem>
+                ))}
+                <MenuSeparador />
+                <MenuItem icono={<PlusCircle size={16} />} onClick={() => setPestana('perfil')} detalle="En Mi perfil → Mis negocios">
+                  Registrar nuevo negocio
+                </MenuItem>
+              </MenuDesplegable>
               <p className="text-[11px] sm:text-xs md:text-sm text-tinta/80 font-medium first-letter:uppercase truncate">
                 {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
               </p>
@@ -1460,7 +1503,7 @@ export default function App({ usuario, onSesionVencida }) {
           <MenuDesplegable
             etiqueta="Equipo"
             icono={<Handshake size={16} />}
-            activo={['socios', 'historial'].includes(pestana)}
+            activo={['socios', 'historial', 'configuracion'].includes(pestana)}
             alinear="derecha"
           >
             <MenuItem icono={<Handshake size={16} />} onClick={() => setPestana('socios')} activo={pestana === 'socios'} detalle="Cuentas y rangos de edición">
@@ -1469,13 +1512,22 @@ export default function App({ usuario, onSesionVencida }) {
             <MenuItem icono={<History size={16} />} onClick={() => setPestana('historial')} activo={pestana === 'historial'} detalle="Quién cambió qué y cuándo">
               Historial de cambios
             </MenuItem>
+            <MenuSeparador />
+            <MenuItem icono={<Settings size={16} />} onClick={() => setPestana('configuracion')} activo={pestana === 'configuracion'} detalle="Nombre, color, reparto y Telegram">
+              Configuración del negocio
+            </MenuItem>
           </MenuDesplegable>
         </nav>
       </header>
 
-      {pestana === 'perfil' && <Perfil usuario={usuario} onReverificar={onSesionVencida} />}
-      {pestana === 'socios' && <Socios usuario={usuario} />}
-      {pestana === 'historial' && <Historial />}
+      {pestana === 'perfil' && (
+        <Perfil usuario={usuario} onReverificar={onSesionVencida} negocios={negocios} negocioId={negocioId} cambiarNegocio={cambiarNegocio} />
+      )}
+      {pestana === 'socios' && <Socios usuario={usuario} negocioId={negocioId} negocio={negocio} />}
+      {pestana === 'historial' && <Historial negocioId={negocioId} incluirAntiguo={negocioId === ID_TAZON} />}
+      {pestana === 'configuracion' && (
+        <ConfigNegocio negocioId={negocioId} negocio={negocio} esTitular={puede('socios') && miembro?.rol === 'titular'} operacion={operacion} />
+      )}
       {pestana === 'etiquetas' && (
         <Suspense fallback={<p className="text-center text-gris-calido py-10">Cargando etiquetas...</p>}>
           <Etiquetas productos={productos} puedeEditar={puede('inventario')} onAsignarCodigos={asignarCodigosInternos} />
@@ -1635,8 +1687,8 @@ export default function App({ usuario, onSesionVencida }) {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 print:gap-2 print:mb-4">
             <Kpi color="sol" icono={<Banknote size={18} />} etiqueta="Ventas pagadas" valor={dinero(totalIngresosDia)} detalle={`${ventasPagadas.length} venta(s)`} />
             <Kpi color="turquesa" icono={<RefreshCw size={18} />} etiqueta="Fondo reposición" valor={dinero(totalReposicionDia)} detalle="Costo de lo vendido" />
-            <Kpi color="verde" icono={<PiggyBank size={18} />} etiqueta="Ahorro mejoras" valor={dinero(fondoAhorro)} detalle="15 % de la ganancia" />
-            <Kpi color="coral" icono={<Handshake size={18} />} etiqueta="Pago por socio" valor={dinero(salarioPorSocio)} detalle="Ganancia neta ÷ 3" />
+            <Kpi color="verde" icono={<PiggyBank size={18} />} etiqueta="Ahorro mejoras" valor={dinero(fondoAhorro)} detalle={`${porcentajeAhorro} % de la ganancia`} />
+            <Kpi color="coral" icono={<Handshake size={18} />} etiqueta="Pago por socio" valor={dinero(salarioPorSocio)} detalle={`Ganancia neta ÷ ${numeroSocios}`} />
           </div>
 
           {!puedeVender && <AvisoSinPermiso accion="registrar ventas" />}

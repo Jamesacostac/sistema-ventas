@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { UserCircle, LogOut, Save, Mail, KeyRound, Smartphone, Send, Trash2, Eye, EyeOff } from 'lucide-react';
+import { UserCircle, LogOut, Save, Mail, KeyRound, Smartphone, Send, Trash2, Eye, EyeOff, Store, PlusCircle } from 'lucide-react';
 import { auth, db } from './firebase';
 import { llamarServidor, cerrarSesion, idDispositivoActual, borrarDispositivo } from './servidor';
+import { FormNuevoNegocio, colorNegocio } from './negociosComun';
 
 const claseInput = 'w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none';
 const claseBoton = 'flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow disabled:opacity-50';
@@ -24,7 +25,7 @@ const formatoFecha = (valor) => {
   return fecha ? fecha.toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 };
 
-export default function Perfil({ usuario, onReverificar }) {
+export default function Perfil({ usuario, onReverificar, negocios = [], negocioId, cambiarNegocio }) {
   const [perfil, setPerfil] = useState(null);
   const [dispositivos, setDispositivos] = useState([]);
   const [idActual, setIdActual] = useState(null);
@@ -178,6 +179,40 @@ export default function Perfil({ usuario, onReverificar }) {
         >
           <LogOut size={16} /> Cerrar sesión
         </button>
+      </div>
+
+      {/* Mis negocios */}
+      <div className="panel p-6">
+        <h3 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+          <Store size={18} className="text-indigo-600" /> Mis negocios
+        </h3>
+        <p className="text-xs text-slate-500 mb-4">Cada negocio tiene sus propias ventas, inventario, socios y finanzas. No se mezclan.</p>
+        <div className="space-y-2 mb-5">
+          {negocios.map(n => (
+            <div key={n.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border-[1.5px] ${n.id === negocioId ? 'border-tinta bg-crema/60' : 'border-[#E9E1D2]'}`}>
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="h-8 w-8 rounded-full border-2 border-tinta shrink-0" style={{ background: colorNegocio(n.color) }} />
+                <div className="min-w-0">
+                  <p className="font-semibold truncate">{n.nombre}</p>
+                  <p className="text-xs text-slate-500">
+                    {n.rolPropio === 'titular' ? 'Titular' : 'Socio'} · ahorro {n.porcentajeAhorro ?? 15} % · salario ÷ {n.numeroSocios ?? 3}
+                  </p>
+                </div>
+              </div>
+              {n.id === negocioId
+                ? <span className="pastilla pastilla-info">Actual</span>
+                : <button onClick={() => cambiarNegocio(n.id)} className="btn btn-claro btn-sm">Abrir</button>}
+            </div>
+          ))}
+        </div>
+        <details className="group">
+          <summary className="btn btn-oscuro btn-sm cursor-pointer list-none w-fit">
+            <PlusCircle size={14} /> Registrar nuevo negocio
+          </summary>
+          <div className="mt-4 p-4 rounded-xl border-[1.5px] border-dashed border-[#E2D9C8]">
+            <FormNuevoNegocio onCreado={(id) => cambiarNegocio(id)} />
+          </div>
+        </details>
       </div>
 
       {/* Nombre de usuario */}

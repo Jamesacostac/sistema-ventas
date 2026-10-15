@@ -18,11 +18,14 @@ export const RANGOS = [
   { nombre: 'Administrador', permisos: ['ventas', 'ventas_editar', 'clientes', 'inventario', 'finanzas', 'socios'] }
 ];
 
-export const tienePermiso = (perfil, permiso) =>
-  perfil?.rol === 'principal' || perfil?.permisos?.[permiso] === true;
+// El titular del negocio (o el titular antiguo, rol "principal") puede todo
+export const esTitular = (miembro) => miembro?.rol === 'titular' || miembro?.rol === 'principal';
+
+export const tienePermiso = (miembro, permiso) =>
+  esTitular(miembro) || miembro?.permisos?.[permiso] === true;
 
 export const nombreRango = (perfil) => {
-  if (perfil?.rol === 'principal') return 'Titular';
+  if (esTitular(perfil)) return 'Titular';
   const activos = PERMISOS.filter(p => perfil?.permisos?.[p.clave]).map(p => p.clave).sort().join(',');
   const rango = RANGOS.find(r => [...r.permisos].sort().join(',') === activos);
   return rango ? rango.nombre : 'Personalizado';
@@ -53,9 +56,12 @@ const limpiar = (datos) => {
  *   op.eliminar(doc(db, 'gastos', id), gastoAntes);
  *   await op.guardar();
  */
-export const operacionAuditada = (usuario, perfil, accion, detalle = '') => {
+export const operacionAuditada = (usuario, perfil, accion, detalle = '', negocioId) => {
+  if (!negocioId) throw new Error('Falta el negocio para registrar el cambio.');
   const nombre = perfil?.nombre || '';
-  const refRegistro = doc(collection(db, 'auditoria'));
+  // El historial de cambios es propio de cada negocio
+  const colRegistro = collection(db, 'negocios', negocioId, 'auditoria');
+  const refRegistro = doc(colRegistro);
   const sello = {
     modificadoPor: usuario.uid,
     modificadoPorNombre: nombre,
@@ -87,7 +93,7 @@ export const operacionAuditada = (usuario, perfil, accion, detalle = '') => {
         for (let i = 0; i < cambios.length; i += 400) {
           const batch = writeBatch(db);
           const grupo = cambios.slice(i, i + 400);
-          const ref = i === 0 ? refRegistro : doc(collection(db, 'auditoria'));
+          const ref = i === 0 ? refRegistro : doc(colRegistro);
           grupo.forEach(c => {
             const datos = i === 0 ? c.datos : { ...c.datos, auditoriaId: ref.id };
             if (c.tipo === 'crear') batch.set(c.ref, datos);
@@ -107,7 +113,7 @@ export const operacionAuditada = (usuario, perfil, accion, detalle = '') => {
         const batch = writeBatch(db);
         eliminaciones.slice(i, i + MAX_ELIMINACIONES_POR_LOTE).forEach(({ ref, antes }) => {
           batch.delete(ref);
-          batch.set(doc(db, 'auditoria', `eliminar_${ref.parent.id}_${ref.id}`), {
+          batch.set(doc(colRegistro, `eliminar_${ref.parent.id}_${ref.id}`), {
             ...registroBase,
             cambios: [{ ruta: ref.path, tipo: 'eliminar', antes: limpiar(antes), despues: null }],
             fecha: serverTimestamp()
