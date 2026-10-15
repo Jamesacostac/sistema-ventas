@@ -1,20 +1,44 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, writeBatch 
+  collection, onSnapshot, doc
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegram';
 import { cerrarSesion } from './servidor';
 import Perfil from './Perfil';
 import Socios from './Socios';
+import Historial from './Historial';
+import { operacionAuditada, tienePermiso } from './auditoria';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line 
 } from 'recharts';
 import { 
   CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart, Users, HandCoins, UserPlus, Phone, Merge, Shield, UserCircle
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart, Users, HandCoins, UserPlus, Phone, Merge, Shield, UserCircle, History
 } from 'lucide-react';
+
+// Aviso que aparece sobre un formulario cuando el socio no tiene ese rango de edición
+const AvisoSinPermiso = ({ accion }) => (
+  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
+    🔒 Solo lectura: no tienes permiso para {accion}. El titular puede asignártelo en la pestaña Socios.
+  </p>
+);
+
+// "Maira · 14 oct, 3:20 p. m." a partir del sello de auditoría del documento
+const firmaCambio = (item) => {
+  if (!item?.modificadoPorNombre) return null;
+  const fecha = item.modificadoEn?.toDate?.();
+  const hora = fecha
+    ? fecha.toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+    : '';
+  return `${item.modificadoPorNombre}${hora ? ' · ' + hora : ''}`;
+};
+
+const FirmaCambio = ({ item }) => {
+  const texto = firmaCambio(item);
+  return texto ? <span className="block text-[10px] text-slate-400 font-normal" title="Último cambio">✎ {texto}</span> : null;
+};
 
 export default function App({ usuario, onSesionVencida }) {
   const [pestana, setPestana] = useState('ventas');
@@ -23,6 +47,17 @@ export default function App({ usuario, onSesionVencida }) {
   const [categorias, setCategorias] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [clientes, setClientes] = useState([]);
+  const [perfil, setPerfil] = useState(null);
+
+  // Rangos de edición: el titular puede todo; los socios según sus permisos
+  const puede = (permiso) => tienePermiso(perfil, permiso);
+  const exigir = (permiso, accion) => {
+    if (puede(permiso)) return true;
+    alert(`🔒 No tienes permiso para ${accion}.\n\nPídele al titular (o a quien gestione los socios) que te asigne ese rango.`);
+    return false;
+  };
+  // Todo cambio se registra con el nombre del usuario y la hora (ver auditoria.js)
+  const operacion = (accion, detalle) => operacionAuditada(usuario, perfil, accion, detalle);
   const [cajaInicial, setCajaInicial] = useState(0);
   const [cajaDocId, setCajaDocId] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -113,6 +148,10 @@ export default function App({ usuario, onSesionVencida }) {
       setGastos(listaG.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
     }, manejarError);
 
+    const unsubPerfil = onSnapshot(doc(db, 'admins', usuario.uid), (snapshot) => {
+      setPerfil(snapshot.exists() ? snapshot.data() : null);
+    }, manejarError);
+
     const unsubClientes = onSnapshot(collection(db, 'clientes'), (snapshot) => {
       const listaC = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setClientes(listaC.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es')));
@@ -134,6 +173,7 @@ export default function App({ usuario, onSesionVencida }) {
       unsubVentas();
       unsubCategorias();
       unsubGastos();
+      unsubPerfil();
       unsubClientes();
       unsubCaja();
     };
@@ -259,15 +299,6 @@ export default function App({ usuario, onSesionVencida }) {
   const clienteDeVenta = (v) =>
     (v.clienteId && clientes.find(c => c.id === v.clienteId)) || buscarClientePorNombre(v.cliente);
 
-  // Firestore permite máximo 500 operaciones por lote: se divide en bloques
-  const actualizarEnLotes = async (operaciones) => {
-    for (let i = 0; i < operaciones.length; i += 450) {
-      const batch = writeBatch(db);
-      operaciones.slice(i, i + 450).forEach(({ ref, datos }) => batch.update(ref, datos));
-      await batch.commit();
-    }
-  };
-
   const ventasPendientes = ventas.filter(v => !v.pagado);
   const totalPorCobrar = ventasPendientes.reduce((acc, v) => acc + v.total, 0);
 
@@ -319,21 +350,25 @@ export default function App({ usuario, onSesionVencida }) {
     }
 
     const datos = { nombre, telefono: formCliente.telefono.trim(), nota: formCliente.nota.trim() };
+    if (!exigir('clientes', 'gestionar clientes')) return;
 
     try {
       if (editandoClienteId) {
         const anterior = clientes.find(c => c.id === editandoClienteId);
-        await updateDoc(doc(db, 'clientes', editandoClienteId), datos);
+        const op = operacion('Cliente editado', anterior?.nombre !== nombre ? `${anterior?.nombre} → ${nombre}` : nombre);
+        op.actualizar(doc(db, 'clientes', editandoClienteId), datos, anterior);
 
         // Si cambió el nombre, se actualiza también en sus ventas para que el historial coincida
         if (anterior && anterior.nombre !== nombre) {
-          const operaciones = ventas
+          ventas
             .filter(v => clienteDeVenta(v)?.id === editandoClienteId)
-            .map(v => ({ ref: doc(db, 'ventas', v.id), datos: { cliente: nombre, clienteId: editandoClienteId } }));
-          await actualizarEnLotes(operaciones);
+            .forEach(v => op.actualizar(doc(db, 'ventas', v.id), { cliente: nombre, clienteId: editandoClienteId }, v));
         }
+        await op.guardar();
       } else {
-        await addDoc(collection(db, 'clientes'), { ...datos, creadoEn: Date.now() });
+        const op = operacion('Cliente registrado', nombre);
+        op.crear(doc(collection(db, 'clientes')), { ...datos, creadoEn: Date.now() });
+        await op.guardar();
       }
       cancelarEdicionCliente();
     } catch (error) {
@@ -351,9 +386,12 @@ export default function App({ usuario, onSesionVencida }) {
     if (cuenta.deuda > 0) {
       return alert(`No se puede eliminar a "${cuenta.nombre}" porque tiene una deuda pendiente de $${cuenta.deuda.toLocaleString()}.\n\nSi es un registro duplicado, usa el botón "Fusionar" para pasar su deuda al cliente correcto.`);
     }
+    if (!exigir('clientes', 'eliminar clientes')) return;
     if (!confirm(`¿Eliminar al cliente "${cuenta.nombre}"? Sus ventas pasadas se conservan en el historial.`)) return;
     try {
-      await deleteDoc(doc(db, 'clientes', cuenta.cliente.id));
+      const op = operacion('Cliente eliminado', cuenta.nombre);
+      op.eliminar(doc(db, 'clientes', cuenta.cliente.id), cuenta.cliente);
+      await op.guardar();
     } catch (error) {
       alert("Error al eliminar el cliente: " + error.message);
     }
@@ -379,6 +417,7 @@ export default function App({ usuario, onSesionVencida }) {
     const destino = clientes.find(c => c.id === fusionDestinoId);
     if (!destino) return alert("Elige el cliente al que se pasarán las ventas.");
     if (cuenta.cliente && destino.id === cuenta.cliente.id) return alert("Elige un cliente diferente.");
+    if (!exigir('clientes', 'fusionar clientes')) return;
 
     const ventasMover = ventasDeCuenta(cuenta);
     const accion = cuenta.cliente ? `y se ELIMINARÁ el registro "${cuenta.nombre}"` : '';
@@ -391,22 +430,14 @@ export default function App({ usuario, onSesionVencida }) {
 
     setProcesandoCuenta(true);
     try {
-      const operaciones = ventasMover.map(v => ({
-        ref: doc(db, 'ventas', v.id),
-        datos: { clienteId: destino.id, cliente: destino.nombre }
-      }));
-
-      if (operaciones.length < 450) {
-        // Todo en una sola operación atómica: mover ventas + eliminar duplicado
-        const batch = writeBatch(db);
-        operaciones.forEach(({ ref, datos }) => batch.update(ref, datos));
-        if (cuenta.cliente) batch.delete(doc(db, 'clientes', cuenta.cliente.id));
-        await batch.commit();
-      } else {
-        // Primero se mueven las ventas; solo si todo sale bien se borra el duplicado
-        await actualizarEnLotes(operaciones);
-        if (cuenta.cliente) await deleteDoc(doc(db, 'clientes', cuenta.cliente.id));
-      }
+      // Primero se mueven las ventas y después se borra el duplicado (todo queda registrado)
+      const op = operacion(
+        cuenta.cliente ? 'Clientes fusionados' : 'Ventas asignadas a cliente',
+        `${cuenta.nombre} → ${destino.nombre} (${ventasMover.length} ventas, deuda $${cuenta.deuda.toLocaleString()})`
+      );
+      ventasMover.forEach(v => op.actualizar(doc(db, 'ventas', v.id), { clienteId: destino.id, cliente: destino.nombre }, v));
+      if (cuenta.cliente) op.eliminar(doc(db, 'clientes', cuenta.cliente.id), cuenta.cliente);
+      await op.guardar();
 
       setFusionCuentaKey(null);
       setFusionDestinoId('');
@@ -420,16 +451,14 @@ export default function App({ usuario, onSesionVencida }) {
 
   // Registra como cliente a alguien que tenía fiados antiguos sin registro
   const registrarDeudor = async (cuenta) => {
+    if (!exigir('clientes', 'registrar clientes')) return;
     setProcesandoCuenta(true);
     try {
-      const batch = writeBatch(db);
-      const refCliente = doc(collection(db, 'clientes'));
       const nombre = cuenta.nombre.trim().replace(/\s+/g, ' ');
-      batch.set(refCliente, { nombre, telefono: '', nota: '', creadoEn: Date.now() });
-      cuenta.pendientes.slice(0, 450).forEach(v => {
-        batch.update(doc(db, 'ventas', v.id), { clienteId: refCliente.id, cliente: nombre });
-      });
-      await batch.commit();
+      const op = operacion('Cliente registrado', `${nombre} (con ${cuenta.pendientes.length} fiados antiguos)`);
+      const refCliente = op.crear(doc(collection(db, 'clientes')), { nombre, telefono: '', nota: '', creadoEn: Date.now() });
+      cuenta.pendientes.forEach(v => op.actualizar(doc(db, 'ventas', v.id), { clienteId: refCliente.id, cliente: nombre }, v));
+      await op.guardar();
     } catch (error) {
       alert("Error al registrar el cliente: " + error.message);
     } finally {
@@ -438,21 +467,25 @@ export default function App({ usuario, onSesionVencida }) {
   };
 
   // Marca como pagadas las ventas indicadas, con el medio con que se pagó la deuda
-  const saldarVentas = async (ventasASaldar, medioPago) => {
-    const operaciones = ventasASaldar.map(v => ({
-      ref: doc(db, 'ventas', v.id),
-      datos: { pagado: true, medioPago, fechaPago: new Date().toISOString().split('T')[0] }
-    }));
-    await actualizarEnLotes(operaciones);
+  const saldarVentas = async (ventasASaldar, medioPago, nombreCliente) => {
+    const total = ventasASaldar.reduce((acc, v) => acc + v.total, 0);
+    const op = operacion('Fiado cobrado', `${nombreCliente || ventasASaldar[0]?.cliente} — $${total.toLocaleString()} (${medioPago}, ${ventasASaldar.length} venta/s)`);
+    ventasASaldar.forEach(v => op.actualizar(
+      doc(db, 'ventas', v.id),
+      { pagado: true, medioPago, fechaPago: new Date().toISOString().split('T')[0] },
+      v
+    ));
+    await op.guardar();
   };
 
   const handleSaldarTodo = async (cuenta) => {
     if (cuenta.pendientes.length === 0) return;
+    if (!exigir('clientes', 'cobrar fiados')) return;
     if (!confirm(`¿Registrar el pago de TODA la deuda de "${cuenta.nombre}"?\n\n${cuenta.pendientes.length} venta(s) por $${cuenta.deuda.toLocaleString()} pagadas con ${medioPagoAbono}.`)) return;
 
     setProcesandoCuenta(true);
     try {
-      await saldarVentas(cuenta.pendientes, medioPagoAbono);
+      await saldarVentas(cuenta.pendientes, medioPagoAbono, cuenta.nombre);
       enviarMensajeTelegram(
         `💵 <b>DEUDA SALDADA</b>\n\n` +
         `👤 Cliente: <b>${cuenta.nombre}</b>\n` +
@@ -468,6 +501,7 @@ export default function App({ usuario, onSesionVencida }) {
   };
 
   const handlePagarVenta = async (venta) => {
+    if (!exigir('clientes', 'cobrar fiados')) return;
     if (!confirm(`¿Marcar como pagada la venta de ${venta.producto} por $${venta.total.toLocaleString()} (${medioPagoAbono})?`)) return;
     setProcesandoCuenta(true);
     try {
@@ -582,6 +616,7 @@ export default function App({ usuario, onSesionVencida }) {
   // una venta por ítem + la actualización de lotes de cada producto.
   const handleRegistrarVenta = async () => {
     if (carrito.length === 0) return alert("El carrito está vacío.");
+    if (!exigir('ventas', 'registrar ventas')) return;
     if (formVenta.medioPago === 'Otro' && !formVenta.otroMedioPago.trim()) {
       return alert("Especifica el medio de pago.");
     }
@@ -604,15 +639,19 @@ export default function App({ usuario, onSesionVencida }) {
 
     setGuardandoVenta(true);
     try {
-      const batch = writeBatch(db);
+      const clientePrevio = buscarClientePorNombre(nombreCliente);
+      const nombreMostrado = clientePrevio?.nombre || nombreCliente || 'Cliente General';
+      const op = operacion(
+        formVenta.pagado ? 'Venta registrada' : 'Venta fiada registrada',
+        `${nombreMostrado} — $${totalCarrito.toLocaleString()} (${carrito.map(i => `${i.nombre} x${i.cantidad}`).join(', ')})`
+      );
 
       // Vincular la venta con el cliente registrado. Si es un fiado de un cliente
       // nuevo, se registra el cliente en la misma operación.
-      let clienteRegistrado = buscarClientePorNombre(nombreCliente);
+      let clienteRegistrado = clientePrevio;
       if (!clienteRegistrado && !formVenta.pagado) {
-        const refCliente = doc(collection(db, 'clientes'));
+        const refCliente = op.crear(doc(collection(db, 'clientes')), { nombre: nombreCliente, telefono: '', nota: '', creadoEn });
         clienteRegistrado = { id: refCliente.id, nombre: nombreCliente };
-        batch.set(refCliente, { nombre: nombreCliente, telefono: '', nota: '', creadoEn });
       }
       const cliente = clienteRegistrado?.nombre || nombreCliente || 'Cliente General';
       const clienteId = clienteRegistrado?.id || null;
@@ -620,7 +659,7 @@ export default function App({ usuario, onSesionVencida }) {
       carrito.forEach(item => {
         const total = item.precio * item.cantidad;
         const costoTotal = item.costo * item.cantidad;
-        batch.set(doc(collection(db, 'ventas')), {
+        op.crear(doc(collection(db, 'ventas')), {
           fecha,
           cliente,
           clienteId,
@@ -641,10 +680,11 @@ export default function App({ usuario, onSesionVencida }) {
       Object.entries(lotesPorProducto).forEach(([prodId, lotes]) => {
         const stock = lotes.reduce((acc, l) => acc + l.cantidad, 0);
         stockFinal[prodId] = stock;
-        batch.update(doc(db, 'productos', prodId), { lotes, stock });
+        const antes = productos.find(p => p.id === prodId);
+        op.actualizar(doc(db, 'productos', prodId), { lotes, stock }, antes && { lotes: antes.lotes, stock: antes.stock });
       });
 
-      await batch.commit();
+      await op.guardar();
 
       // Alertas de reposición para los productos que quedaron con poco stock
       Object.entries(stockFinal).forEach(([prodId, stock]) => {
@@ -691,18 +731,20 @@ export default function App({ usuario, onSesionVencida }) {
 
   const handleGuardarProducto = async (e) => {
     e.preventDefault();
+    if (!exigir('inventario', 'modificar el inventario')) return;
 
     try {
       if (editandoProductoId) {
-        await updateDoc(doc(db, 'productos', editandoProductoId), {
+        const prodObj = productos.find(p => p.id === editandoProductoId);
+        const cambios = {
           nombre: formProducto.nombre.trim(),
           costo: Number(formProducto.costo),
           precio: Number(formProducto.precio),
           categoria: formProducto.categoria || 'Sin categoría'
-        });
+        };
+        let detalle = `${cambios.nombre}: costo $${cambios.costo}, precio $${cambios.precio}`;
 
         if (formProducto.cantidad && formProducto.vencimiento) {
-          const prodObj = productos.find(p => p.id === editandoProductoId);
           let nuevosLotes = JSON.parse(JSON.stringify(obtenerLotesNorm(prodObj || {})));
           const cant = Number(formProducto.cantidad);
 
@@ -713,12 +755,14 @@ export default function App({ usuario, onSesionVencida }) {
             vencimiento: formProducto.vencimiento
           });
 
-          const nuevoStockTotal = nuevosLotes.reduce((acc, l) => acc + l.cantidad, 0);
-          await updateDoc(doc(db, 'productos', editandoProductoId), { 
-            lotes: nuevosLotes,
-            stock: nuevoStockTotal
-          });
+          cambios.lotes = nuevosLotes;
+          cambios.stock = nuevosLotes.reduce((acc, l) => acc + l.cantidad, 0);
+          detalle += ` + lote ${formProducto.variante} x${cant}`;
         }
+
+        const op = operacion('Producto editado', detalle);
+        op.actualizar(doc(db, 'productos', editandoProductoId), cambios, prodObj);
+        await op.guardar();
 
         setEditandoProductoId(null);
         alert("Producto actualizado con éxito.");
@@ -750,16 +794,16 @@ export default function App({ usuario, onSesionVencida }) {
           nuevosLotes.sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
           const nuevoStockTotal = nuevosLotes.reduce((acc, l) => acc + l.cantidad, 0);
 
-          await updateDoc(doc(db, 'productos', prodExistente.id), { 
-            lotes: nuevosLotes,
-            stock: nuevoStockTotal
-          });
+          const op = operacion('Lote agregado', `${prodExistente.nombre} (${formProducto.variante}) x${cant}, vence ${formProducto.vencimiento}`);
+          op.actualizar(doc(db, 'productos', prodExistente.id), { lotes: nuevosLotes, stock: nuevoStockTotal }, prodExistente);
+          await op.guardar();
         } else {
           if (!formProducto.nombre || !formProducto.costo || !formProducto.precio) {
             return alert("Completa nombre, costo y precio para el nuevo producto.");
           }
 
-          await addDoc(collection(db, 'productos'), {
+          const op = operacion('Producto creado', `${formProducto.nombre.trim()} — costo $${formProducto.costo}, precio $${formProducto.precio}, ${cant} un.`);
+          op.crear(doc(collection(db, 'productos')), {
             nombre: formProducto.nombre.trim(),
             costo: Number(formProducto.costo),
             precio: Number(formProducto.precio),
@@ -774,6 +818,7 @@ export default function App({ usuario, onSesionVencida }) {
               }
             ]
           });
+          await op.guardar();
         }
       }
 
@@ -784,6 +829,7 @@ export default function App({ usuario, onSesionVencida }) {
   };
 
   const handleEditarLote = async (prodId, loteId) => {
+    if (!exigir('inventario', 'modificar lotes')) return;
     const prod = productos.find(p => p.id === prodId);
     if (!prod) return;
     const lotesActuales = obtenerLotesNorm(prod);
@@ -806,11 +852,13 @@ export default function App({ usuario, onSesionVencida }) {
       const nuevoStockTotal = lotesModificados.reduce((acc, l) => acc + l.cantidad, 0);
 
       try {
-        await updateDoc(doc(db, 'productos', prodId), { 
+        const op = operacion('Lote editado', `${prod.nombre} (${lote.variante}): ${lote.cantidad} → ${nuevaCant} un., vence ${lote.vencimiento} → ${nuevaFecha}`);
+        op.actualizar(doc(db, 'productos', prodId), {
           lotes: lotesModificados,
           stock: nuevoStockTotal,
           vencimiento: lotesModificados[0]?.vencimiento || 'N/A'
-        });
+        }, prod);
+        await op.guardar();
       } catch (error) {
         alert("Error al actualizar lote: " + error.message);
       }
@@ -818,19 +866,20 @@ export default function App({ usuario, onSesionVencida }) {
   };
 
   const handleEliminarLote = async (prodId, loteId) => {
+    if (!exigir('inventario', 'eliminar lotes')) return;
     if (!confirm("¿Eliminar este lote específico del inventario?")) return;
     const prod = productos.find(p => p.id === prodId);
     if (!prod) return;
 
     const lotesActuales = obtenerLotesNorm(prod);
+    const lote = lotesActuales.find(l => l.id === loteId);
     const lotesActualizados = lotesActuales.filter(l => l.id !== loteId);
     const nuevoStockTotal = lotesActualizados.reduce((acc, l) => acc + l.cantidad, 0);
 
     try {
-      await updateDoc(doc(db, 'productos', prodId), { 
-        lotes: lotesActualizados,
-        stock: nuevoStockTotal 
-      });
+      const op = operacion('Lote eliminado', `${prod.nombre} (${lote?.variante}) x${lote?.cantidad}, vence ${lote?.vencimiento}`);
+      op.actualizar(doc(db, 'productos', prodId), { lotes: lotesActualizados, stock: nuevoStockTotal }, prod);
+      await op.guardar();
     } catch (error) {
       alert("Error al eliminar lote: " + error.message);
     }
@@ -838,15 +887,19 @@ export default function App({ usuario, onSesionVencida }) {
 
   const handleGuardarEfectivoBase = async (e) => {
     e.preventDefault();
+    if (!exigir('finanzas', 'ajustar la caja')) return;
     const monto = Number(nuevoEfectivoBaseInput);
     if (isNaN(monto)) return alert("Ingresa una cantidad válida.");
 
     try {
+      const op = operacion('Efectivo base ajustado', `$${cajaInicial.toLocaleString()} → $${monto.toLocaleString()}`);
+      const datos = { monto, fechaActualizacion: new Date().toISOString() };
       if (cajaDocId) {
-        await updateDoc(doc(db, 'caja_base', cajaDocId), { monto, fechaActualizacion: new Date().toISOString() });
+        op.actualizar(doc(db, 'caja_base', cajaDocId), datos, { monto: cajaInicial });
       } else {
-        await addDoc(collection(db, 'caja_base'), { monto, fechaActualizacion: new Date().toISOString() });
+        op.crear(doc(collection(db, 'caja_base')), datos);
       }
+      await op.guardar();
       setNuevoEfectivoBaseInput('');
       alert("Efectivo base no registrado actualizado correctamente.");
     } catch (error) {
@@ -872,30 +925,34 @@ export default function App({ usuario, onSesionVencida }) {
 
   const handleAgregarOEditarGasto = async (e) => {
     e.preventDefault();
+    if (!exigir('finanzas', 'registrar gastos')) return;
     const monto = Number(formGasto.monto);
     if (!formGasto.concepto.trim() || isNaN(monto) || monto <= 0) {
       return alert("Por favor completa el concepto y un monto mayor a cero.");
     }
 
     try {
+      const datos = {
+        concepto: formGasto.concepto.trim(),
+        monto,
+        tipo: formGasto.tipo,
+        detalle: formGasto.detalle.trim() || 'Sin observaciones adicionales'
+      };
       if (editandoGastoId) {
-        await updateDoc(doc(db, 'gastos', editandoGastoId), {
-          concepto: formGasto.concepto.trim(),
-          monto,
-          tipo: formGasto.tipo,
-          detalle: formGasto.detalle.trim() || 'Sin observaciones adicionales'
-        });
+        const anterior = gastos.find(g => g.id === editandoGastoId);
+        const op = operacion('Gasto editado', `${datos.concepto}: $${(anterior?.monto || 0).toLocaleString()} → $${monto.toLocaleString()}`);
+        op.actualizar(doc(db, 'gastos', editandoGastoId), datos, anterior);
+        await op.guardar();
         setEditandoGastoId(null);
         alert("Gasto actualizado con éxito.");
       } else {
-        await addDoc(collection(db, 'gastos'), {
-          concepto: formGasto.concepto.trim(),
-          monto,
-          tipo: formGasto.tipo,
-          detalle: formGasto.detalle.trim() || 'Sin observaciones adicionales',
+        const op = operacion('Gasto registrado', `${datos.concepto} (${datos.tipo}) — $${monto.toLocaleString()}`);
+        op.crear(doc(collection(db, 'gastos')), {
+          ...datos,
           fecha: new Date().toISOString().split('T')[0],
           creadoEn: Date.now()
         });
+        await op.guardar();
       }
 
       setFormGasto({ concepto: '', monto: '', tipo: 'Proveedor', detalle: '' });
@@ -905,24 +962,31 @@ export default function App({ usuario, onSesionVencida }) {
   };
 
   const eliminarGasto = async (id) => {
-    if (confirm("¿Eliminar este registro de gasto?")) {
-      await deleteDoc(doc(db, 'gastos', id));
+    if (!exigir('finanzas', 'eliminar gastos')) return;
+    if (!confirm("¿Eliminar este registro de gasto?")) return;
+    const gasto = gastos.find(g => g.id === id);
+    try {
+      const op = operacion('Gasto eliminado', `${gasto?.concepto} — $${(gasto?.monto || 0).toLocaleString()}`);
+      op.eliminar(doc(db, 'gastos', id), gasto);
+      await op.guardar();
+    } catch (error) {
+      alert("Error al eliminar el gasto: " + error.message);
     }
   };
 
   const handleBorrarVentasPagadas = async () => {
+    if (!exigir('ventas_editar', 'eliminar ventas')) return;
     const ventasPagadasList = ventas.filter(v => v.pagado);
     if (ventasPagadasList.length === 0) {
       return alert("No hay ventas pagadas para eliminar.");
     }
 
-    if (confirm(`¿Estás seguro de eliminar las ${ventasPagadasList.length} ventas ya PAGADAS? Se conservarán solo las pendientes por cobrar.`)) {
+    if (confirm(`¿Estás seguro de eliminar las ${ventasPagadasList.length} ventas ya PAGADAS? Se conservarán solo las pendientes por cobrar.\n\nCada venta borrada queda guardada en el Historial de cambios.`)) {
       try {
-        const batch = writeBatch(db);
-        ventasPagadasList.forEach(v => {
-          batch.delete(doc(db, 'ventas', v.id));
-        });
-        await batch.commit();
+        const total = ventasPagadasList.reduce((acc, v) => acc + v.total, 0);
+        const op = operacion('Ventas pagadas borradas', `${ventasPagadasList.length} ventas por $${total.toLocaleString()}`);
+        ventasPagadasList.forEach(v => op.eliminar(doc(db, 'ventas', v.id), v));
+        await op.guardar();
         alert("Se eliminaron con éxito las ventas pagadas.");
       } catch (error) {
         alert("Error al borrar ventas pagadas: " + error.message);
@@ -933,8 +997,11 @@ export default function App({ usuario, onSesionVencida }) {
   const handleAgregarCategoria = async (e) => {
     e.preventDefault();
     if (!nuevaCategoria.trim()) return;
+    if (!exigir('inventario', 'crear categorías')) return;
     try {
-      await addDoc(collection(db, 'categorias'), { nombre: nuevaCategoria.trim() });
+      const op = operacion('Categoría creada', nuevaCategoria.trim());
+      op.crear(doc(collection(db, 'categorias')), { nombre: nuevaCategoria.trim() });
+      await op.guardar();
       setNuevaCategoria('');
     } catch (error) {
       alert("Error al agregar categoría: " + error.message);
@@ -942,21 +1009,57 @@ export default function App({ usuario, onSesionVencida }) {
   };
 
   const eliminarCategoria = async (id) => {
-    if (confirm("¿Eliminar esta categoría?")) await deleteDoc(doc(db, 'categorias', id));
+    if (!exigir('inventario', 'eliminar categorías')) return;
+    if (!confirm("¿Eliminar esta categoría?")) return;
+    const categoria = categorias.find(c => c.id === id);
+    try {
+      const op = operacion('Categoría eliminada', categoria?.nombre || '');
+      op.eliminar(doc(db, 'categorias', id), categoria);
+      await op.guardar();
+    } catch (error) {
+      alert("Error al eliminar la categoría: " + error.message);
+    }
   };
 
   const eliminarProductoCompleto = async (id) => {
-    if (confirm("¿Eliminar este producto completo con todos sus lotes?")) {
-      await deleteDoc(doc(db, 'productos', id));
+    if (!exigir('inventario', 'eliminar productos')) return;
+    if (!confirm("¿Eliminar este producto completo con todos sus lotes?")) return;
+    const prod = productos.find(p => p.id === id);
+    try {
+      const op = operacion('Producto eliminado', `${prod?.nombre} (${getStockTotalProducto(prod || {})} un.)`);
+      op.eliminar(doc(db, 'productos', id), prod);
+      await op.guardar();
+    } catch (error) {
+      alert("Error al eliminar el producto: " + error.message);
     }
   };
 
   const togglePago = async (id, estadoActual) => {
-    await updateDoc(doc(db, 'ventas', id), { pagado: !estadoActual });
+    if (!exigir('ventas_editar', 'cambiar el estado de pago de una venta')) return;
+    const venta = ventas.find(v => v.id === id);
+    try {
+      const op = operacion(
+        estadoActual ? 'Venta marcada como pendiente' : 'Venta marcada como pagada',
+        `${venta?.cliente} — ${venta?.producto} $${(venta?.total || 0).toLocaleString()}`
+      );
+      op.actualizar(doc(db, 'ventas', id), { pagado: !estadoActual }, venta);
+      await op.guardar();
+    } catch (error) {
+      alert("Error al cambiar el estado de pago: " + error.message);
+    }
   };
 
   const eliminarVenta = async (id) => {
-    if (confirm("¿Eliminar esta venta?")) await deleteDoc(doc(db, 'ventas', id));
+    if (!exigir('ventas_editar', 'eliminar ventas')) return;
+    if (!confirm("¿Eliminar esta venta?")) return;
+    const venta = ventas.find(v => v.id === id);
+    try {
+      const op = operacion('Venta eliminada', `${venta?.cliente} — ${venta?.producto} x${venta?.cantidad} $${(venta?.total || 0).toLocaleString()}`);
+      op.eliminar(doc(db, 'ventas', id), venta);
+      await op.guardar();
+    } catch (error) {
+      alert("Error al eliminar la venta: " + error.message);
+    }
   };
 
   // Cuentas financieras dinámicas
@@ -1140,6 +1243,14 @@ export default function App({ usuario, onSesionVencida }) {
           >
             <Shield size={16} /> Socios
           </button>
+          <button
+            onClick={() => setPestana('historial')}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
+              pestana === 'historial' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <History size={16} /> Historial
+          </button>
         </div>
 
         {/* Botones Telegram */}
@@ -1178,6 +1289,7 @@ export default function App({ usuario, onSesionVencida }) {
 
       {pestana === 'perfil' && <Perfil usuario={usuario} onReverificar={onSesionVencida} />}
       {pestana === 'socios' && <Socios usuario={usuario} />}
+      {pestana === 'historial' && <Historial />}
 
       {/* ==================== PESTAÑA VENTAS ==================== */}
       {pestana === 'ventas' && (
@@ -1207,7 +1319,9 @@ export default function App({ usuario, onSesionVencida }) {
             </h2>
 
             {/* Paso 1: agregar productos al carrito */}
+            {!puede('ventas') && <AvisoSinPermiso accion="registrar ventas" />}
             <form onSubmit={handleAgregarAlCarrito} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <fieldset disabled={!puede('ventas')} className="contents">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Producto</label>
                 <select
@@ -1269,6 +1383,7 @@ export default function App({ usuario, onSesionVencida }) {
               >
                 <ShoppingCart size={16} /> Agregar al Carrito
               </button>
+              </fieldset>
             </form>
 
             {/* Paso 2: revisar el carrito */}
@@ -1445,7 +1560,7 @@ export default function App({ usuario, onSesionVencida }) {
                 <tbody className="divide-y divide-slate-200">
                   {ventas.map((v) => (
                     <tr key={v.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 text-slate-500">{v.fecha}</td>
+                      <td className="p-3 text-slate-500">{v.fecha}<FirmaCambio item={v} /></td>
                       <td className="p-3 font-medium text-slate-800">{v.cliente}</td>
                       <td className="p-3 font-semibold text-indigo-600">{v.producto}</td>
                       <td className="p-3 text-slate-500">{v.variante}</td>
@@ -1514,7 +1629,9 @@ export default function App({ usuario, onSesionVencida }) {
               <UserPlus size={18} className="text-indigo-600" />
               {editandoClienteId ? 'Editar Cliente' : 'Registrar Nuevo Cliente'}
             </h2>
+            {!puede('clientes') && <AvisoSinPermiso accion="gestionar clientes" />}
             <form onSubmit={handleGuardarCliente} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              <fieldset disabled={!puede('clientes')} className="contents">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
                 <input
@@ -1563,6 +1680,7 @@ export default function App({ usuario, onSesionVencida }) {
                   </button>
                 )}
               </div>
+              </fieldset>
             </form>
           </div>
 
@@ -1855,7 +1973,9 @@ export default function App({ usuario, onSesionVencida }) {
               <DollarSign size={18} className="text-emerald-600" /> Ajustar Efectivo Base No Registrado
             </h2>
             <p className="text-xs text-slate-500 mb-4">Ingresa la cantidad de dinero acumulado físicamente que no se había registrado previamente.</p>
+            {!puede('finanzas') && <AvisoSinPermiso accion="ajustar la caja" />}
             <form onSubmit={handleGuardarEfectivoBase} className="flex gap-3 items-center">
+              <fieldset disabled={!puede('finanzas')} className="contents">
               <input
                 type="number"
                 placeholder={`Actual: ${cajaInicial}`}
@@ -1869,6 +1989,7 @@ export default function App({ usuario, onSesionVencida }) {
               >
                 <Save size={16} /> Guardar Base
               </button>
+              </fieldset>
             </form>
           </div>
 
@@ -1877,7 +1998,9 @@ export default function App({ usuario, onSesionVencida }) {
             <h2 className="text-base font-bold text-slate-800 mb-4">
               {editandoGastoId ? 'Editar Gasto / Proveedor' : 'Registrar Nuevo Gasto o Compra a Proveedor'}
             </h2>
+            {!puede('finanzas') && <AvisoSinPermiso accion="registrar gastos" />}
             <form onSubmit={handleAgregarOEditarGasto} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-6">
+              <fieldset disabled={!puede('finanzas')} className="contents">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Concepto</label>
                 <input
@@ -1930,6 +2053,7 @@ export default function App({ usuario, onSesionVencida }) {
                   </button>
                 )}
               </div>
+              </fieldset>
             </form>
 
             <h3 className="text-sm font-bold text-slate-700 mb-3">Historial de Gastos y Egresos</h3>
@@ -1947,7 +2071,7 @@ export default function App({ usuario, onSesionVencida }) {
                 <tbody className="divide-y divide-slate-200">
                   {gastos.map((g) => (
                     <tr key={g.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 text-slate-500">{g.fecha}</td>
+                      <td className="p-3 text-slate-500">{g.fecha}<FirmaCambio item={g} /></td>
                       <td className="p-3 font-medium text-slate-800">{g.concepto}</td>
                       <td className="p-3"><span className="px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-600">{g.tipo}</span></td>
                       <td className="p-3 font-bold text-rose-600">${g.monto.toLocaleString()}</td>
@@ -1981,7 +2105,9 @@ export default function App({ usuario, onSesionVencida }) {
               <Package size={18} className="text-indigo-600" />
               {editandoProductoId ? 'Editar Producto Base' : 'Añadir Nuevo Producto o Lote (FEFO)'}
             </h2>
+            {!puede('inventario') && <AvisoSinPermiso accion="modificar el inventario" />}
             <form onSubmit={handleGuardarProducto} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <fieldset disabled={!puede('inventario')} className="contents">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Producto</label>
                 <input
@@ -2078,6 +2204,7 @@ export default function App({ usuario, onSesionVencida }) {
                   </button>
                 )}
               </div>
+              </fieldset>
             </form>
           </div>
 
@@ -2116,6 +2243,7 @@ export default function App({ usuario, onSesionVencida }) {
                               {expandido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                               {p.nombre}
                             </button>
+                            <FirmaCambio item={p} />
                           </td>
                           <td className="p-3 text-slate-500">{p.categoria || 'Sin categoría'}</td>
                           <td className="p-3">${p.costo}</td>
@@ -2183,7 +2311,9 @@ export default function App({ usuario, onSesionVencida }) {
       {pestana === 'categorias' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-xl mx-auto">
           <h2 className="text-base font-bold text-slate-800 mb-4">Gestión de Categorías</h2>
+          {!puede('inventario') && <AvisoSinPermiso accion="crear categorías" />}
           <form onSubmit={handleAgregarCategoria} className="flex gap-3 mb-6">
+            <fieldset disabled={!puede('inventario')} className="contents">
             <input
               type="text"
               placeholder="Nueva categoría..."
@@ -2194,6 +2324,7 @@ export default function App({ usuario, onSesionVencida }) {
             <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow">
               Agregar
             </button>
+            </fieldset>
           </form>
 
           <div className="space-y-2">

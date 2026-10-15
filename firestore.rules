@@ -2,26 +2,39 @@ rules_version = '2';
 
 // Seguridad del Sistema de Ventas
 //
-// Para leer o escribir datos hay que cumplir DOS cosas:
-//   1. Ser administrador: existe el documento admins/{uid}.
-//   2. Tener la sesión verificada en este dispositivo: existe sesiones/{uid}_{auth_time}
-//      con fecha de vencimiento futura. Solo el servidor de verificación (Cloudflare)
-//      crea ese documento, después de comprobar el código enviado al correo o
-//      un dispositivo de confianza (30 días).
+// 1. ACCESO: para leer o escribir hay que ser administrador (admins/{uid}) y tener la
+//    sesión de este dispositivo verificada (sesiones/{uid}_{auth_time}, la crea el
+//    servidor de verificación después del código por correo o de un dispositivo de confianza).
 //
-// Las colecciones de seguridad (admins, sesiones, dispositivos, codigos) solo las
-// modifica el servidor, que usa una cuenta interna propia.
+// 2. PERMISOS (rangos): el titular (rol "principal") puede todo. Cada socio tiene un mapa
+//    admins/{uid}.permisos con: ventas, ventas_editar, clientes, inventario, finanzas, socios.
+//    Los permisos solo los cambia el servidor, a pedido del titular o de quien él autorice.
+//
+// 3. AUDITORÍA: todo documento que se crea o modifica lleva el sello modificadoPor /
+//    modificadoEn / auditoriaId, y en la MISMA operación se debe crear el registro
+//    auditoria/{auditoriaId} con el nombre del usuario y la hora del servidor. Las
+//    eliminaciones crean auditoria/eliminar_{coleccion}_{id}. Si falta el registro,
+//    la escritura se rechaza. Nadie (ni el titular) puede editar o borrar la auditoría.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ---------------- Identidad y sesión ----------------
 
     // UID de la cuenta interna del servidor de verificación (no es un secreto)
     function esServidor() {
       return request.auth != null && request.auth.uid == 'UID_SERVIDOR';
     }
 
+    function rutaPerfil() {
+      return /databases/$(database)/documents/admins/$(request.auth.uid);
+    }
+
     function esAdmin() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return request.auth != null && exists(rutaPerfil());
+    }
+
+    function perfil() {
+      return get(rutaPerfil()).data;
     }
 
     function idSesion() {
@@ -36,7 +49,53 @@ service cloud.firestore {
       return esAdmin() && sesionVerificada();
     }
 
-    // Lista de socios: la ven los administradores; solo el servidor la modifica
+    // ---------------- Permisos ----------------
+
+    function esTitular() {
+      return perfil().rol == 'principal';
+    }
+
+    function puede(permiso) {
+      return esTitular() || perfil().get('permisos', {}).get(permiso, false) == true;
+    }
+
+    // Campos del sello de auditoría que se agregan a cada documento
+    function camposSello() {
+      return ['modificadoPor', 'modificadoPorNombre', 'modificadoEn', 'auditoriaId'];
+    }
+
+    // La modificación solo toca los campos indicados (más el sello)
+    function soloCambia(campos) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos.concat(camposSello()));
+    }
+
+    // ---------------- Auditoría ----------------
+
+    // Crear/modificar: el documento lleva el sello y existe su registro de auditoría en esta misma operación
+    function auditado() {
+      let registro = getAfter(/databases/$(database)/documents/auditoria/$(request.resource.data.auditoriaId)).data;
+      return request.resource.data.modificadoPor == request.auth.uid
+        && request.resource.data.modificadoEn == request.time
+        && registro.uid == request.auth.uid
+        && registro.fecha == request.time;
+    }
+
+    // Eliminar: existe auditoria/eliminar_{coleccion}_{id} creado en esta misma operación
+    function eliminacionAuditada(coleccion, id) {
+      let registro = getAfter(/databases/$(database)/documents/auditoria/$('eliminar_' + coleccion + '_' + id)).data;
+      return registro.uid == request.auth.uid && registro.fecha == request.time;
+    }
+
+    function escribirConPermiso(permiso) {
+      return adminVerificado() && puede(permiso) && auditado();
+    }
+
+    function eliminarConPermiso(permiso, coleccion, id) {
+      return adminVerificado() && puede(permiso) && eliminacionAuditada(coleccion, id);
+    }
+
+    // ---------------- Colecciones de seguridad (las maneja el servidor) ----------------
+
     match /admins/{uid} {
       allow read: if esServidor()
         || (request.auth != null && request.auth.uid == uid)
@@ -44,27 +103,83 @@ service cloud.firestore {
       allow write: if esServidor();
     }
 
-    // Sesiones verificadas: cada uno puede consultar solo la suya
     match /sesiones/{id} {
       allow read: if esServidor() || (request.auth != null && id == idSesion());
       allow write: if esServidor();
     }
 
-    // Dispositivos de confianza: cada uno ve los suyos
     match /dispositivos/{id} {
       allow read: if esServidor() || (adminVerificado() && resource.data.uid == request.auth.uid);
       allow write: if esServidor();
     }
 
-    // Códigos de verificación (guardados como hash): solo el servidor
     match /codigos/{id} {
       allow read, write: if esServidor();
     }
 
-    // Datos del negocio: productos, ventas, clientes, gastos, categorias, caja_base, config...
-    match /{coleccion}/{documento=**} {
-      allow read, write: if adminVerificado()
-        && !(coleccion in ['admins', 'sesiones', 'dispositivos', 'codigos']);
+    // Registro de auditoría: se puede leer y crear (a nombre propio y con la hora del servidor),
+    // nunca editar ni borrar.
+    match /auditoria/{id} {
+      allow read: if adminVerificado();
+      allow create: if esServidor() || (
+        adminVerificado()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.nombre == perfil().get('nombre', '')
+        && request.resource.data.fecha == request.time
+      );
+      allow update, delete: if false;
+    }
+
+    // ---------------- Datos del negocio ----------------
+
+    match /ventas/{id} {
+      allow read: if adminVerificado();
+      allow create: if escribirConPermiso('ventas');
+      // Editar ventas, o (con permiso de clientes) solo cobrar / reasignar al cliente
+      allow update: if escribirConPermiso('ventas_editar')
+        || (escribirConPermiso('clientes') && soloCambia(['pagado', 'medioPago', 'fechaPago', 'clienteId', 'cliente']));
+      allow delete: if eliminarConPermiso('ventas_editar', 'ventas', id);
+    }
+
+    match /productos/{id} {
+      allow read: if adminVerificado();
+      allow create: if escribirConPermiso('inventario');
+      // Al vender se descuenta el stock: basta el permiso de ventas para tocar solo lotes/stock
+      allow update: if escribirConPermiso('inventario')
+        || (escribirConPermiso('ventas') && soloCambia(['lotes', 'stock']));
+      allow delete: if eliminarConPermiso('inventario', 'productos', id);
+    }
+
+    match /categorias/{id} {
+      allow read: if adminVerificado();
+      allow create, update: if escribirConPermiso('inventario');
+      allow delete: if eliminarConPermiso('inventario', 'categorias', id);
+    }
+
+    match /clientes/{id} {
+      allow read: if adminVerificado();
+      // Al fiar a un cliente nuevo se registra automáticamente: basta el permiso de ventas
+      allow create: if escribirConPermiso('clientes') || escribirConPermiso('ventas');
+      allow update: if escribirConPermiso('clientes');
+      allow delete: if eliminarConPermiso('clientes', 'clientes', id);
+    }
+
+    match /gastos/{id} {
+      allow read: if adminVerificado();
+      allow create, update: if escribirConPermiso('finanzas');
+      allow delete: if eliminarConPermiso('finanzas', 'gastos', id);
+    }
+
+    match /caja_base/{id} {
+      allow read: if adminVerificado();
+      allow create, update: if escribirConPermiso('finanzas');
+      allow delete: if eliminarConPermiso('finanzas', 'caja_base', id);
+    }
+
+    // Configuración (token de Telegram): todos la leen, solo el titular la cambia (desde la consola)
+    match /config/{id} {
+      allow read: if adminVerificado();
+      allow write: if false;
     }
   }
 }

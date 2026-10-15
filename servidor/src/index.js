@@ -115,6 +115,10 @@ const aValor = (v) => {
   if (typeof v === 'boolean') return { booleanValue: v };
   if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
   if (v === null || v === undefined) return { nullValue: null };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(aValor) } };
+  if (typeof v === 'object') {
+    return { mapValue: { fields: Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, aValor(x)])) } };
+  }
   return { stringValue: String(v) };
 };
 
@@ -124,6 +128,10 @@ const deValor = (v) => {
   if ('doubleValue' in v) return v.doubleValue;
   if ('booleanValue' in v) return v.booleanValue;
   if ('stringValue' in v) return v.stringValue;
+  if ('arrayValue' in v) return (v.arrayValue.values || []).map(deValor);
+  if ('mapValue' in v) {
+    return Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, deValor(x)]));
+  }
   return null;
 };
 
@@ -236,9 +244,52 @@ const exigirSesion = async (ctx) => {
   return sesion;
 };
 
-const exigirPrincipal = (ctx) => {
-  if (ctx.admin.rol !== 'principal') throw new ErrorApi(403, 'Solo el administrador principal puede gestionar socios.');
+// ==================== Rangos y auditoría ====================
+
+const PERMISOS = ['ventas', 'ventas_editar', 'clientes', 'inventario', 'finanzas', 'socios'];
+// Por defecto un socio nuevo puede modificar todo, excepto gestionar socios
+const PERMISOS_POR_DEFECTO = { ventas: true, ventas_editar: true, clientes: true, inventario: true, finanzas: true, socios: false };
+
+const esTitular = (perfil) => perfil?.rol === 'principal';
+const puedeGestionarSocios = (perfil) => esTitular(perfil) || perfil?.permisos?.socios === true;
+
+const exigirGestor = (ctx) => {
+  if (!puedeGestionarSocios(ctx.admin)) {
+    throw new ErrorApi(403, 'No tienes permiso para gestionar socios. Solo el titular o quien él autorice.');
+  }
 };
+
+// Reglas sobre a quién puede afectar cada gestor
+const exigirPuedeAfectar = (ctx, socio) => {
+  if (socio.id === ctx.uid) throw new ErrorApi(400, 'No puedes modificar tu propia cuenta desde aquí.');
+  if (esTitular(socio)) throw new ErrorApi(403, 'Nadie puede modificar al titular.');
+  if (!esTitular(ctx.admin) && socio.permisos?.socios) {
+    throw new ErrorApi(403, 'Solo el titular puede modificar a otro gestor de socios.');
+  }
+};
+
+const limpiarPermisos = (ctx, permisos = {}) => {
+  const limpios = Object.fromEntries(PERMISOS.map(p => [p, permisos[p] === true]));
+  // Solo el titular puede autorizar a otros a gestionar socios
+  if (!esTitular(ctx.admin)) limpios.socios = false;
+  return limpios;
+};
+
+const textoPermisos = (permisos) => {
+  const activos = PERMISOS.filter(p => permisos?.[p]);
+  return activos.length ? activos.join(', ') : 'solo lectura';
+};
+
+// Registro en la auditoría de lo que hace el servidor a pedido de un usuario
+const auditar = (ctx, accion, detalle, cambios = []) =>
+  ctx.db.set(`auditoria/srv_${Date.now()}_${hexAleatorio(4)}`, {
+    uid: ctx.uid,
+    nombre: ctx.admin.nombre || ctx.correo,
+    accion,
+    detalle,
+    cambios,
+    fecha: new Date()
+  });
 
 // Comprueba un código; si es correcto lo invalida para que no se pueda reusar
 const verificarCodigo = async (ctx, proposito, codigo) => {
@@ -377,6 +428,7 @@ const rutas = {
       if (error.codigo === 'WEAK_PASSWORD') throw new ErrorApi(400, 'La nueva contraseña es demasiado débil.');
       throw error;
     }
+    await auditar(ctx, 'Contraseña cambiada', `Desde ${ctx.dispositivo}`);
     return { ok: true };
   },
 
@@ -396,6 +448,7 @@ const rutas = {
       if (error.codigo === 'EMAIL_EXISTS') throw new ErrorApi(409, 'Ese correo ya está en uso por otra cuenta.');
       throw error;
     }
+    await auditar(ctx, 'Cambio de correo solicitado', `${ctx.correo} → ${correoNuevo}`);
     return { ok: true };
   },
 
@@ -407,12 +460,13 @@ const rutas = {
     const { id: _id, ...admin } = ctx.admin;
     await ctx.db.set(`admins/${ctx.uid}`, { ...admin, nombre: limpio, correo: ctx.correo });
     await identity(ctx.env, 'accounts:update', { idToken: ctx.idToken, displayName: limpio }).catch(() => {});
+    if (admin.nombre !== limpio) await auditar(ctx, 'Nombre de usuario cambiado', `${admin.nombre || '(sin nombre)'} → ${limpio}`);
     return { ok: true };
   },
 
-  '/socios/crear': async (ctx, { nombre, correo, clave }) => {
+  '/socios/crear': async (ctx, { nombre, correo, clave, permisos }) => {
     await exigirSesion(ctx);
-    exigirPrincipal(ctx);
+    exigirGestor(ctx);
 
     const nombreLimpio = String(nombre || '').trim().replace(/\s+/g, ' ');
     const correoLimpio = String(correo || '').trim().toLowerCase();
@@ -438,22 +492,47 @@ const rutas = {
     }
 
     if (await ctx.db.get(`admins/${uid}`)) throw new ErrorApi(409, 'Esa persona ya es socio.');
-    await ctx.db.set(`admins/${uid}`, {
-      nombre: nombreLimpio, correo: correoLimpio, rol: 'socio', creado: new Date(), creadoPor: ctx.uid
-    });
+    const permisosFinales = limpiarPermisos(ctx, permisos || PERMISOS_POR_DEFECTO);
+    const nuevo = {
+      nombre: nombreLimpio, correo: correoLimpio, rol: 'socio', permisos: permisosFinales,
+      creado: new Date(), creadoPor: ctx.uid
+    };
+    await ctx.db.set(`admins/${uid}`, nuevo);
+    await auditar(ctx, 'Socio agregado', `${nombreLimpio} (${correoLimpio}) — permisos: ${textoPermisos(permisosFinales)}`,
+      [{ ruta: `admins/${uid}`, tipo: 'crear', antes: null, despues: { nombre: nombreLimpio, correo: correoLimpio, permisos: permisosFinales } }]);
     return { ok: true, uid };
+  },
+
+  // Cambiar el rango (permisos de edición) de un socio
+  '/socios/permisos': async (ctx, { uid, permisos }) => {
+    await exigirSesion(ctx);
+    exigirGestor(ctx);
+
+    const socio = await ctx.db.get(`admins/${uid}`);
+    if (!socio) throw new ErrorApi(404, 'Socio no encontrado.');
+    exigirPuedeAfectar(ctx, socio);
+
+    const nuevos = limpiarPermisos(ctx, permisos);
+    if (!esTitular(ctx.admin)) nuevos.socios = socio.permisos?.socios === true; // un gestor no toca ese permiso
+
+    const { id: _id, ...datos } = socio;
+    await ctx.db.set(`admins/${uid}`, { ...datos, permisos: nuevos, permisosCambiadosPor: ctx.uid, permisosCambiadosEn: new Date() });
+    await auditar(ctx, 'Rango de socio cambiado', `${socio.nombre}: ${textoPermisos(socio.permisos)} → ${textoPermisos(nuevos)}`,
+      [{ ruta: `admins/${uid}`, tipo: 'editar', antes: { permisos: socio.permisos || {} }, despues: { permisos: nuevos } }]);
+    return { ok: true, permisos: nuevos };
   },
 
   '/socios/eliminar': async (ctx, { uid }) => {
     await exigirSesion(ctx);
-    exigirPrincipal(ctx);
-    if (uid === ctx.uid) throw new ErrorApi(400, 'No puedes quitarte a ti mismo.');
+    exigirGestor(ctx);
 
     const socio = await ctx.db.get(`admins/${uid}`);
     if (!socio) throw new ErrorApi(404, 'Socio no encontrado.');
-    if (socio.rol === 'principal') throw new ErrorApi(403, 'No se puede quitar a un administrador principal.');
+    exigirPuedeAfectar(ctx, socio);
 
     await ctx.db.borrar(`admins/${uid}`);
+    await auditar(ctx, 'Socio quitado', `${socio.nombre} (${socio.correo})`,
+      [{ ruta: `admins/${uid}`, tipo: 'eliminar', antes: { nombre: socio.nombre, correo: socio.correo, permisos: socio.permisos || {} }, despues: null }]);
     const [sesiones, dispositivos] = await Promise.all([
       ctx.db.buscar('sesiones', 'uid', uid),
       ctx.db.buscar('dispositivos', 'uid', uid)
