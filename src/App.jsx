@@ -7,7 +7,7 @@ import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegra
 import { cerrarSesion } from './servidor';
 import Perfil from './Perfil';
 import ConfigNegocio from './ConfigNegocio';
-import { colorNegocio, ID_TAZON } from './negociosComun';
+import { colorNegocio, ID_TAZON, FormNuevoNegocio } from './negociosComun';
 import Socios from './Socios';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -582,6 +582,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
   // ==================== CARRITO DE COMPRAS ====================
   const [carrito, setCarrito] = useState([]);
+  const [ventanaNegocio, setVentanaNegocio] = useState(false);
   // En PC (≥ 1536 px) el pedido es una columna fija; en celular, tablet y portátil es una ventana flotante
   const esPC = usePantalla('(min-width: 1536px)');
   const [pedidoAbierto, setPedidoAbierto] = useState(false);
@@ -1423,7 +1424,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                   </MenuItem>
                 ))}
                 <MenuSeparador />
-                <MenuItem icono={<PlusCircle size={16} />} onClick={() => setPestana('perfil')} detalle="En Mi perfil → Mis negocios">
+                <MenuItem icono={<PlusCircle size={16} />} onClick={() => setVentanaNegocio(true)} detalle="Con sus propias ventas, socios y finanzas">
                   Registrar nuevo negocio
                 </MenuItem>
               </MenuDesplegable>
@@ -1458,6 +1459,22 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               <MenuTitulo>{usuario?.email}</MenuTitulo>
               <MenuItem icono={<UserCircle size={16} />} onClick={() => setPestana('perfil')} activo={pestana === 'perfil'} detalle="Nombre, correo, contraseña y dispositivos">
                 Mi perfil
+              </MenuItem>
+              <MenuSeparador />
+              <MenuTitulo>Mis negocios</MenuTitulo>
+              {negocios.map(n => (
+                <MenuItem
+                  key={n.id}
+                  icono={<span className="h-3.5 w-3.5 rounded-full border-2 border-current shrink-0" style={{ background: colorNegocio(n.color) }} />}
+                  onClick={() => n.id !== negocioId && cambiarNegocio(n.id)}
+                  activo={n.id === negocioId}
+                  detalle={`${n.rolPropio === 'titular' ? 'Titular' : 'Socio'}${n.id === negocioId ? ' · abierto ahora' : ''}`}
+                >
+                  {n.nombre}
+                </MenuItem>
+              ))}
+              <MenuItem icono={<PlusCircle size={16} />} onClick={() => setVentanaNegocio(true)} detalle="Con sus propias ventas, socios y finanzas">
+                Registrar nuevo negocio
               </MenuItem>
               <MenuSeparador />
               <MenuItem icono={<LogOut size={16} />} onClick={handleCerrarSesion} peligro>
@@ -2757,6 +2774,20 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {ventanaNegocio && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 no-print" role="dialog" aria-modal="true" aria-label="Registrar nuevo negocio">
+          <div className="absolute inset-0 bg-tinta/50" onClick={() => setVentanaNegocio(false)} />
+          <div className="ventana-pedido relative w-full max-w-md max-h-[92dvh] overflow-y-auto marca-tarjeta p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-bold flex items-center gap-2"><Store size={18} /> Registrar nuevo negocio</h2>
+              <button onClick={() => setVentanaNegocio(false)} className="btn-icono" aria-label="Cerrar"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-gris-calido mb-4">Tendrá sus propias ventas, inventario, socios y finanzas, sin mezclarse con {negocio?.nombre}. Tú quedas como titular.</p>
+            <FormNuevoNegocio onCreado={(id) => { setVentanaNegocio(false); cambiarNegocio(id); }} />
           </div>
         </div>
       )}
