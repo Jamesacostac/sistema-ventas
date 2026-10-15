@@ -1,27 +1,70 @@
 rules_version = '2';
 
-// Solo los administradores pueden leer o escribir datos.
-// Un usuario es administrador si existe el documento admins/{su UID}.
-// Los documentos de "admins" se crean a mano desde la consola de Firebase
-// (la consola no pasa por estas reglas), nunca desde la app.
+// Seguridad del Sistema de Ventas
+//
+// Para leer o escribir datos hay que cumplir DOS cosas:
+//   1. Ser administrador: existe el documento admins/{uid}.
+//   2. Tener la sesión verificada en este dispositivo: existe sesiones/{uid}_{auth_time}
+//      con fecha de vencimiento futura. Solo el servidor de verificación (Cloudflare)
+//      crea ese documento, después de comprobar el código enviado al correo o
+//      un dispositivo de confianza (30 días).
+//
+// Las colecciones de seguridad (admins, sesiones, dispositivos, codigos) solo las
+// modifica el servidor, que usa una cuenta interna propia.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // UID de la cuenta interna del servidor de verificación (no es un secreto)
+    function esServidor() {
+      return request.auth != null && request.auth.uid == 'UID_SERVIDOR';
+    }
 
     function esAdmin() {
       return request.auth != null
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    // Lista de administradores: nadie la puede modificar desde la app
-    match /admins/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow write: if false;
+    function idSesion() {
+      return request.auth.uid + '_' + string(request.auth.token.auth_time);
     }
 
-    // Todo lo demás (productos, ventas, categorias, gastos, caja_base, config...)
-    // (se excluye "admins" porque las reglas que coinciden se suman con OR)
+    function sesionVerificada() {
+      return get(/databases/$(database)/documents/sesiones/$(idSesion())).data.expira > request.time;
+    }
+
+    function adminVerificado() {
+      return esAdmin() && sesionVerificada();
+    }
+
+    // Lista de socios: la ven los administradores; solo el servidor la modifica
+    match /admins/{uid} {
+      allow read: if esServidor()
+        || (request.auth != null && request.auth.uid == uid)
+        || adminVerificado();
+      allow write: if esServidor();
+    }
+
+    // Sesiones verificadas: cada uno puede consultar solo la suya
+    match /sesiones/{id} {
+      allow read: if esServidor() || (request.auth != null && id == idSesion());
+      allow write: if esServidor();
+    }
+
+    // Dispositivos de confianza: cada uno ve los suyos
+    match /dispositivos/{id} {
+      allow read: if esServidor() || (adminVerificado() && resource.data.uid == request.auth.uid);
+      allow write: if esServidor();
+    }
+
+    // Códigos de verificación (guardados como hash): solo el servidor
+    match /codigos/{id} {
+      allow read, write: if esServidor();
+    }
+
+    // Datos del negocio: productos, ventas, clientes, gastos, categorias, caja_base, config...
     match /{coleccion}/{documento=**} {
-      allow read, write: if esAdmin() && coleccion != 'admins';
+      allow read, write: if adminVerificado()
+        && !(coleccion in ['admins', 'sesiones', 'dispositivos', 'codigos']);
     }
   }
 }

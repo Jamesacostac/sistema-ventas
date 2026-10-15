@@ -1,0 +1,17 @@
+# Servidor de verificación (Cloudflare Workers, plan gratuito)
+# Despliegue: npx wrangler deploy  (desde la carpeta servidor/)
+name = "ventas-verificacion"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+PROJECT_ID = "app-ventas-comestibles"
+FIREBASE_API_KEY = "AIzaSyDiCyAqfjgkiIbQ6B8r1NzTsOg7m7J95Bg"
+ORIGENES = "https://app-ventas-comestibles.web.app,https://app-ventas-comestibles.firebaseapp.com,http://localhost:5173"
+REMITENTE_NOMBRE = "Sistema de Ventas"
+REMITENTE_EMAIL = "acostacruzjamesduvan27@gmail.com"
+
+# Secretos (NO van en este archivo; se cargan con `npx wrangler secret put NOMBRE`):
+#   SERVIDOR_EMAIL  -> correo de la cuenta interna del servidor en Firebase Auth
+#   SERVIDOR_CLAVE  -> contraseña de esa cuenta
+#   BREVO_API_KEY   -> clave de la API de Brevo para enviar correos

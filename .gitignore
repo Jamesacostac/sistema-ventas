@@ -28,3 +28,8 @@ contexto .pdf
 
 # Caché de Firebase Hosting
 .firebase/
+
+# Servidor de verificación (Cloudflare)
+servidor/.wrangler/
+servidor/.dev.vars
+.env

@@ -2,19 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, writeBatch 
 } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
-import { db, auth } from './firebase';
-import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram, limpiarConfigTelegram } from './telegram';
+import { db } from './firebase';
+import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegram';
+import { cerrarSesion } from './servidor';
+import Perfil from './Perfil';
+import Socios from './Socios';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line 
 } from 'recharts';
 import { 
   CheckCircle, XCircle, PlusCircle, Trash2, ShoppingBag, 
   Package, DollarSign, CreditCard, Send, BookOpen, AlertTriangle, Tag,
-  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart, Users, HandCoins, UserPlus, Phone, Merge
+  Edit2, ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, Printer, X, TrendingUp, FileText, LogOut, ShoppingCart, Users, HandCoins, UserPlus, Phone, Merge, Shield, UserCircle
 } from 'lucide-react';
 
-export default function App({ usuario }) {
+export default function App({ usuario, onSesionVencida }) {
   const [pestana, setPestana] = useState('ventas');
   const [productos, setProductos] = useState([]);
   const [ventas, setVentas] = useState([]);
@@ -72,11 +74,22 @@ export default function App({ usuario }) {
 
   // Escuchar Firestore en tiempo real
   useEffect(() => {
-    // Si las reglas de Firestore rechazan al usuario (no es administrador), se muestra un aviso
+    const montadoEn = Date.now();
+    let avisado = false;
+
+    // Si las reglas rechazan el acceso es porque venció la verificación de este
+    // dispositivo (o se revocó): se vuelve a la pantalla de verificación.
+    // Si ocurre apenas se abrió la app, es otro problema y se muestra el aviso.
     const manejarError = (error) => {
       console.error("Error de Firestore:", error);
+      if (avisado) return;
+      avisado = true;
+      if (error.code === 'permission-denied' && Date.now() - montadoEn > 15000) {
+        onSesionVencida();
+        return;
+      }
       setErrorAcceso(error.code === 'permission-denied'
-        ? 'Tu cuenta no tiene permisos de administrador para ver estos datos.'
+        ? 'Tu cuenta no tiene permisos para ver estos datos o la verificación de este dispositivo no es válida.'
         : 'No se pudieron cargar los datos: ' + error.message);
       setCargando(false);
     };
@@ -1013,10 +1026,7 @@ export default function App({ usuario }) {
     })).sort((a, b) => b.unidades - a.unidades);
   })();
 
-  const handleCerrarSesion = async () => {
-    limpiarConfigTelegram();
-    await signOut(auth);
-  };
+  const handleCerrarSesion = cerrarSesion;
 
   if (cargando) {
     return (
@@ -1122,6 +1132,14 @@ export default function App({ usuario }) {
           >
             <BookOpen size={16} /> Carta
           </button>
+          <button
+            onClick={() => setPestana('socios')}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
+              pestana === 'socios' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Shield size={16} /> Socios
+          </button>
         </div>
 
         {/* Botones Telegram */}
@@ -1140,14 +1158,26 @@ export default function App({ usuario }) {
             <Send size={16} /> Enviar Cierre
           </button>
           <button
+            onClick={() => setPestana('perfil')}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition shadow text-xs md:text-sm font-semibold ${
+              pestana === 'perfil' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50'
+            }`}
+            title={`Sesión iniciada como ${usuario?.email || ''}`}
+          >
+            <UserCircle size={16} /> {usuario?.displayName?.split(' ')[0] || 'Mi Perfil'}
+          </button>
+          <button
             onClick={handleCerrarSesion}
             className="flex items-center gap-1.5 bg-slate-800 text-white px-3 py-2 rounded-lg hover:bg-slate-900 transition shadow text-xs md:text-sm font-semibold"
-            title={`Sesión iniciada como ${usuario?.email || ''}`}
+            title="Cerrar sesión"
           >
             <LogOut size={16} /> Salir
           </button>
         </div>
       </header>
+
+      {pestana === 'perfil' && <Perfil usuario={usuario} onReverificar={onSesionVencida} />}
+      {pestana === 'socios' && <Socios usuario={usuario} />}
 
       {/* ==================== PESTAÑA VENTAS ==================== */}
       {pestana === 'ventas' && (
