@@ -20,6 +20,12 @@ import {
   Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive
 } from 'lucide-react';
 
+// Fecha AAAA-MM-DD con la hora de Colombia. Antes se usaba la hora UTC y lo que se
+// registraba después de las 7:00 p. m. quedaba con la fecha del día siguiente.
+const ZONA_HORARIA = 'America/Bogota';
+const fechaLocal = (momento = new Date()) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: ZONA_HORARIA, year: 'numeric', month: '2-digit', day: '2-digit' }).format(momento);
+
 // Formato de dinero colombiano: $12.500
 const dinero = (n) => {
   const valor = Math.round(Number(n) || 0);
@@ -495,7 +501,7 @@ export default function App({ usuario, onSesionVencida }) {
     const op = operacion('Fiado cobrado', `${nombreCliente || ventasASaldar[0]?.cliente} — $${total.toLocaleString()} (${medioPago}, ${ventasASaldar.length} venta/s)`);
     ventasASaldar.forEach(v => op.actualizar(
       doc(db, 'ventas', v.id),
-      { pagado: true, medioPago, fechaPago: new Date().toISOString().split('T')[0] },
+      { pagado: true, medioPago, fechaPago: fechaLocal() },
       v
     ));
     await op.guardar();
@@ -666,7 +672,7 @@ export default function App({ usuario, onSesionVencida }) {
     const medioPagoFinal = formVenta.medioPago === 'Otro'
       ? formVenta.otroMedioPago.trim()
       : formVenta.medioPago;
-    const fecha = new Date().toISOString().split('T')[0];
+    const fecha = fechaLocal();
     const creadoEn = Date.now();
     const pedidoId = doc(collection(db, 'ventas')).id;
 
@@ -982,7 +988,7 @@ export default function App({ usuario, onSesionVencida }) {
         const op = operacion('Gasto registrado', `${datos.concepto} (${datos.tipo}) — $${monto.toLocaleString()}`);
         op.crear(doc(collection(db, 'gastos')), {
           ...datos,
-          fecha: new Date().toISOString().split('T')[0],
+          fecha: fechaLocal(),
           creadoEn: Date.now()
         });
         await op.guardar();
@@ -1106,6 +1112,35 @@ export default function App({ usuario, onSesionVencida }) {
       await op.guardar();
     } catch (error) {
       alert("Error al eliminar la venta: " + error.message);
+    }
+  };
+
+  // Registros guardados con la fecha UTC (corrida un día después de las 7 p. m.).
+  // La fecha correcta se obtiene del momento exacto en que se crearon (creadoEn).
+  const fechaCorrecta = (r) => (r.creadoEn ? fechaLocal(new Date(r.creadoEn)) : r.fecha);
+  const ventasConFechaCorrida = ventas.filter(v => v.creadoEn && v.fecha !== fechaCorrecta(v));
+  const gastosConFechaCorrida = gastos.filter(g => g.creadoEn && g.fecha !== fechaCorrecta(g));
+  const totalFechasCorridas = ventasConFechaCorrida.length + gastosConFechaCorrida.length;
+  const [corrigiendoFechas, setCorrigiendoFechas] = useState(false);
+
+  const handleCorregirFechas = async () => {
+    if (!exigir('ventas_editar', 'corregir fechas de ventas') || !exigir('finanzas', 'corregir fechas de gastos')) return;
+    if (!confirm(
+      `¿Corregir la fecha de ${totalFechasCorridas} registro(s)?\n\n` +
+      `• ${ventasConFechaCorrida.length} venta(s) y ${gastosConFechaCorrida.length} gasto(s) hechos entre las 7 p. m. y la medianoche quedaron con la fecha del día siguiente.\n` +
+      `• Se les pondrá el día correcto según la hora exacta en que se registraron. Montos y caja no cambian.`
+    )) return;
+    setCorrigiendoFechas(true);
+    try {
+      const op = operacion('Fechas corregidas (zona horaria)', `${ventasConFechaCorrida.length} ventas y ${gastosConFechaCorrida.length} gastos`);
+      ventasConFechaCorrida.forEach(v => op.actualizar(doc(db, 'ventas', v.id), { fecha: fechaCorrecta(v) }, { fecha: v.fecha }));
+      gastosConFechaCorrida.forEach(g => op.actualizar(doc(db, 'gastos', g.id), { fecha: fechaCorrecta(g) }, { fecha: g.fecha }));
+      await op.guardar();
+      alert('Listo: las fechas quedaron con el día correcto.');
+    } catch (error) {
+      alert('Error al corregir las fechas: ' + error.message);
+    } finally {
+      setCorrigiendoFechas(false);
     }
   };
 
@@ -1357,6 +1392,18 @@ export default function App({ usuario, onSesionVencida }) {
 
           {!puedeVender && <AvisoSinPermiso accion="registrar ventas" />}
 
+          {totalFechasCorridas > 0 && puede('ventas_editar') && puede('finanzas') && (
+            <div className="aviso aviso-info mb-6 flex-wrap items-center justify-between no-print">
+              <span>
+                <b>Hay {totalFechasCorridas} registro(s) con la fecha corrida un día</b> (hechos entre las 7 p. m. y la medianoche).
+                {' '}Se pueden corregir con la hora exacta en que se registraron.
+              </span>
+              <button onClick={handleCorregirFechas} disabled={corrigiendoFechas} className="btn btn-oscuro btn-sm">
+                {corrigiendoFechas ? 'Corrigiendo...' : 'Corregir fechas'}
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-6 mb-6 items-start no-print">
             {/* ---------- Catálogo ---------- */}
             <section className="panel p-4 md:p-5">
@@ -1602,7 +1649,7 @@ export default function App({ usuario, onSesionVencida }) {
                           {v.pagado ? <CheckCircle size={12} /> : <HandCoins size={12} />}
                           {v.pagado ? 'Pagado' : 'Fiado'}
                         </button>
-                        {v.archivada && <span className="block mt-1 text-[10px] text-gris-calido whitespace-nowrap">Cerrada {v.fechaCierre?.slice(0, 10)}</span>}
+                        {v.archivada && <span className="block mt-1 text-[10px] text-gris-calido whitespace-nowrap">Cerrada {v.fechaCierre ? fechaLocal(new Date(v.fechaCierre)) : ''}</span>}
                       </td>
                       <td className="p-3 text-right no-print">
                         <button onClick={() => eliminarVenta(v.id)} className="btn-icono btn-icono-peligro" title="Eliminar venta">
