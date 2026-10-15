@@ -14,10 +14,10 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line 
 } from 'recharts';
 import {
-  CheckCircle, XCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
+  CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
   HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
-  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX
 } from 'lucide-react';
 
 // Formato de dinero colombiano: $12.500
@@ -584,40 +584,50 @@ export default function App({ usuario, onSesionVencida }) {
     return { lotesPorProducto };
   };
 
-  const handleAgregarAlCarrito = (e) => {
-    e.preventDefault();
-    const prod = productos.find(p => p.id === formVenta.productoId);
-    if (!prod) return alert("Selecciona un producto válido.");
+  // Filtros del catálogo y del historial de ventas
+  const [busquedaProducto, setBusquedaProducto] = useState('');
+  const [categoriaVenta, setCategoriaVenta] = useState('');
+  const [filtroVentas, setFiltroVentas] = useState('todas');
+  const [busquedaVentas, setBusquedaVentas] = useState('');
 
-    const cantidad = Number(formVenta.cantidad);
-    if (!Number.isInteger(cantidad) || cantidad <= 0) return alert("La cantidad debe ser un número entero mayor a cero.");
-
-    const nuevoItem = {
-      key: `${prod.id}_${Date.now()}`,
-      productoId: prod.id,
-      nombre: prod.nombre,
-      variante: formVenta.variante,
-      cantidad,
-      precio: Number(prod.precio) || 0,
-      costo: Number(prod.costo) || 0
-    };
-
-    // Si ya hay un ítem igual (mismo producto y variante), se suma la cantidad
-    const existente = carrito.find(i => i.productoId === prod.id && i.variante === formVenta.variante);
+  // Agrega un producto al pedido (con un toque en el catálogo). Si ya está, suma la cantidad.
+  const agregarProducto = (prod, variante = 'TODAS', cantidad = 1) => {
+    if (!exigir('ventas', 'registrar ventas')) return;
+    const existente = carrito.find(i => i.productoId === prod.id && i.variante === variante);
     const carritoNuevo = existente
       ? carrito.map(i => i === existente ? { ...i, cantidad: i.cantidad + cantidad } : i)
-      : [...carrito, nuevoItem];
+      : [...carrito, {
+          key: `${prod.id}_${Date.now()}`,
+          productoId: prod.id,
+          nombre: prod.nombre,
+          variante,
+          cantidad,
+          precio: Number(prod.precio) || 0,
+          costo: Number(prod.costo) || 0
+        }];
 
     const { error } = simularCarrito(carritoNuevo);
     if (error) return alert(`❌ ${error}`);
-
     setCarrito(carritoNuevo);
-    setFormVenta({ ...formVenta, productoId: '', variante: 'TODAS', cantidad: 1 });
+  };
+
+  // Cambia la variante/lote de una línea del pedido (si ya existe esa variante, se juntan)
+  const handleCambiarVarianteItem = (key, variante) => {
+    const item = carrito.find(i => i.key === key);
+    if (!item || item.variante === variante) return;
+    const igual = carrito.find(i => i.key !== key && i.productoId === item.productoId && i.variante === variante);
+    const carritoNuevo = igual
+      ? carrito.filter(i => i.key !== key).map(i => i === igual ? { ...i, cantidad: i.cantidad + item.cantidad } : i)
+      : carrito.map(i => i.key === key ? { ...i, variante } : i);
+    const { error } = simularCarrito(carritoNuevo);
+    if (error) return alert(`❌ ${error}`);
+    setCarrito(carritoNuevo);
   };
 
   const handleCambiarCantidadItem = (key, nuevaCantidad) => {
     const cantidad = Number(nuevaCantidad);
-    if (!Number.isInteger(cantidad) || cantidad <= 0) return;
+    if (cantidad === 0) return handleQuitarItem(key);
+    if (!Number.isInteger(cantidad) || cantidad < 0) return;
     const carritoNuevo = carrito.map(i => i.key === key ? { ...i, cantidad } : i);
     const { error } = simularCarrito(carritoNuevo);
     if (error) return alert(`❌ ${error}`);
@@ -1293,8 +1303,31 @@ export default function App({ usuario, onSesionVencida }) {
       {pestana === 'socios' && <Socios usuario={usuario} />}
       {pestana === 'historial' && <Historial />}
 
-      {/* ==================== PESTAÑA VENTAS ==================== */}
-      {pestana === 'ventas' && (
+      {/* ==================== PESTAÑA VENTAS (punto de venta) ==================== */}
+      {pestana === 'ventas' && (() => {
+        // Catálogo filtrado por búsqueda y categoría
+        const categoriasVenta = [...new Set(productos.map(p => p.categoria || 'Sin categoría'))].sort((a, b) => a.localeCompare(b, 'es'));
+        const textoBusqueda = normalizarNombre(busquedaProducto);
+        const catalogo = productos
+          .filter(p => !categoriaVenta || (p.categoria || 'Sin categoría') === categoriaVenta)
+          .filter(p => !textoBusqueda || normalizarNombre(p.nombre).includes(textoBusqueda))
+          .map(p => {
+            const enCarrito = carrito.filter(i => i.productoId === p.id).reduce((acc, i) => acc + i.cantidad, 0);
+            return { ...p, enCarrito, disponible: getStockTotalProducto(p) - enCarrito };
+          })
+          .sort((a, b) => (b.disponible > 0) - (a.disponible > 0) || a.nombre.localeCompare(b.nombre, 'es'));
+
+        // Historial filtrado
+        const textoVentas = normalizarNombre(busquedaVentas);
+        const ventasFiltradas = ventas
+          .filter(v => filtroVentas === 'todas' || (filtroVentas === 'pagadas' ? v.pagado : !v.pagado))
+          .filter(v => !textoVentas || normalizarNombre(`${v.cliente} ${v.producto}`).includes(textoVentas));
+
+        const clienteSeleccionado = buscarClientePorNombre(formVenta.cliente);
+        const deudaCliente = clienteSeleccionado ? (cuentasClientes.find(cc => cc.cliente.id === clienteSeleccionado.id)?.deuda || 0) : 0;
+        const puedeVender = puede('ventas');
+
+        return (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 print:gap-2 print:mb-4">
             <Kpi color="sol" icono={<Banknote size={18} />} etiqueta="Ventas pagadas" valor={dinero(totalIngresosDia)} detalle={`${ventasPagadas.length} venta(s)`} />
@@ -1303,240 +1336,218 @@ export default function App({ usuario, onSesionVencida }) {
             <Kpi color="coral" icono={<Handshake size={18} />} etiqueta="Pago por socio" valor={dinero(salarioPorSocio)} detalle="Ganancia neta ÷ 3" />
           </div>
 
-          <div className="panel no-print p-5 mb-6">
-            <h2 className="text-lg font-bold mb-5 text-tinta flex items-center gap-2.5">
-              <ShoppingCart size={18} /> Nueva venta
-            </h2>
+          {!puedeVender && <AvisoSinPermiso accion="registrar ventas" />}
 
-            {/* Paso 1: agregar productos al carrito */}
-            <p className="paso"><span className="paso-numero">1</span> Elige los productos</p>
-            {!puede('ventas') && <AvisoSinPermiso accion="registrar ventas" />}
-            <form onSubmit={handleAgregarAlCarrito} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-              <fieldset disabled={!puede('ventas')} className="contents">
-              <div>
-                <label className="etiqueta">Producto</label>
-                <select
-                  required
-                  value={formVenta.productoId}
-                  onChange={(e) => setFormVenta({ ...formVenta, productoId: e.target.value, variante: 'TODAS' })}
-                  className="campo"
-                >
-                  <option value="">Seleccionar Producto...</option>
-                  {productos.map((p) => {
-                    const enCarrito = carrito.filter(i => i.productoId === p.id).reduce((acc, i) => acc + i.cantidad, 0);
-                    const st = getStockTotalProducto(p) - enCarrito;
-                    return (
-                      <option key={p.id} value={p.id} disabled={st <= 0}>
-                        {p.precio === 0 ? '🎁 [REGALO] ' : ''}
-                        {p.nombre} — ${p.precio} (Disponible: {st})
-                      </option>
-                    );
-                  })}
-                </select>
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-6 mb-6 items-start no-print">
+            {/* ---------- Catálogo ---------- */}
+            <section className="panel p-4 md:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
+                  <Store size={18} /> Productos
+                </h2>
+                <div className="relative w-full sm:w-64">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gris-calido" />
+                  <input
+                    type="search"
+                    placeholder="Buscar producto..."
+                    value={busquedaProducto}
+                    onChange={(e) => setBusquedaProducto(e.target.value)}
+                    className="campo pl-9"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="etiqueta">Variante / Lote</label>
-                <select
-                  value={formVenta.variante}
-                  onChange={(e) => setFormVenta({ ...formVenta, variante: e.target.value })}
-                  className="campo"
-                >
-                  <option value="TODAS">Automático (FEFO)</option>
-                  {(() => {
-                    const prodSel = productos.find(p => p.id === formVenta.productoId);
-                    if (!prodSel) return null;
-                    const lotes = obtenerLotesNorm(prodSel);
-                    const variantesUnicas = [...new Set(lotes.map(l => l.variante))];
-                    return variantesUnicas.map(v => (
-                      <option key={v} value={v}>{v}</option>
-                    ));
-                  })()}
-                </select>
-              </div>
+              {categoriasVenta.length > 1 && (
+                <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
+                  <button onClick={() => setCategoriaVenta('')} className={`chip ${!categoriaVenta ? 'chip-activo' : ''}`}>Todas</button>
+                  {categoriasVenta.map(c => (
+                    <button key={c} onClick={() => setCategoriaVenta(c)} className={`chip ${categoriaVenta === c ? 'chip-activo' : ''}`}>{c}</button>
+                  ))}
+                </div>
+              )}
 
-              <div>
-                <label className="etiqueta">Cantidad</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  required
-                  value={formVenta.cantidad}
-                  onChange={(e) => setFormVenta({ ...formVenta, cantidad: Number(e.target.value) })}
-                  className="campo"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="btn btn-oscuro"
-              >
-                <ShoppingCart size={16} /> Agregar al Carrito
-              </button>
-              </fieldset>
-            </form>
-
-            <hr className="separador" />
-
-            {/* Paso 2: revisar el carrito */}
-            <p className="paso"><span className="paso-numero">2</span> Revisa el carrito</p>
-            <div className="border-[1.5px] border-[#E9E1D2] rounded-xl overflow-hidden">
-              <div className="flex justify-between items-center px-4 py-2.5 bg-crema border-b-[1.5px] border-[#E9E1D2]">
-                <h3 className="text-sm font-bold text-tinta flex items-center gap-2">
-                  <ShoppingCart size={16} />
-                  Carrito ({carrito.length} {carrito.length === 1 ? 'producto' : 'productos'}, {unidadesCarrito} un.)
-                </h3>
-                {carrito.length > 0 && (
-                  <button onClick={handleVaciarCarrito} className="enlace enlace-peligro text-xs">
-                    Vaciar
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 pt-2">
+                {catalogo.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => agregarProducto(p)}
+                    disabled={!puedeVender || p.disponible <= 0}
+                    className={`producto-tile ${p.enCarrito > 0 ? 'producto-tile-en-carrito' : ''}`}
+                    title={p.disponible <= 0 ? 'Sin stock disponible' : 'Agregar al pedido'}
+                  >
+                    {p.enCarrito > 0 && <span className="producto-cantidad">{p.enCarrito}</span>}
+                    <span>
+                      <span className="block font-bold text-sm leading-snug">{p.nombre}</span>
+                      <span className="block text-[11px] text-gris-calido">{p.categoria || 'Sin categoría'}</span>
+                    </span>
+                    <span className="flex flex-wrap items-end justify-between gap-x-2 gap-y-1.5">
+                      <span className="kpi-valor text-lg leading-none">
+                        {p.precio === 0 ? <span className="flex items-center gap-1 text-sm"><Gift size={14} /> Regalo</span> : dinero(p.precio)}
+                      </span>
+                      <span className={`pastilla !text-[10px] ${p.disponible <= 0 ? (p.enCarrito > 0 ? 'pastilla-pendiente' : 'pastilla-peligro') : p.disponible <= 3 ? 'pastilla-pendiente' : 'pastilla-neutra'}`}>
+                        {p.disponible <= 0 ? (p.enCarrito > 0 ? 'Todo en pedido' : 'Agotado') : `${p.disponible} disp.`}
+                      </span>
+                    </span>
                   </button>
-                )}
+                ))}
+              </div>
+              {catalogo.length === 0 && (
+                <div className="text-center py-10 text-sm text-gris-calido">
+                  <PackageX size={28} className="mx-auto mb-2 opacity-60" />
+                  {productos.length === 0 ? 'Todavía no hay productos. Agrégalos en Inventario.' : 'Ningún producto coincide con la búsqueda.'}
+                </div>
+              )}
+            </section>
+
+            {/* ---------- Pedido actual ---------- */}
+            <aside className="panel p-4 md:p-5 lg:sticky lg:top-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
+                  <ShoppingCart size={18} /> Pedido
+                  {unidadesCarrito > 0 && <span className="pastilla pastilla-pendiente">{unidadesCarrito} un.</span>}
+                </h2>
+                {carrito.length > 0 && <button onClick={handleVaciarCarrito} className="enlace enlace-peligro text-xs">Vaciar</button>}
               </div>
 
               {carrito.length === 0 ? (
-                <p className="p-4 text-center text-sm text-slate-400">Agrega productos para armar la venta.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
-                    <thead>
-                      <tr className="text-slate-500 border-b-[1.5px] border-[#E9E1D2]">
-                        <th className="p-3">Producto</th>
-                        <th className="p-3">Variante</th>
-                        <th className="p-3">Precio</th>
-                        <th className="p-3">Cantidad</th>
-                        <th className="p-3">Subtotal</th>
-                        <th className="p-3 text-right"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {carrito.map(item => (
-                        <tr key={item.key}>
-                          <td className="p-3 font-semibold text-slate-800">{item.nombre}</td>
-                          <td className="p-3 text-slate-500">{item.variante === 'TODAS' ? 'Automático (FEFO)' : item.variante}</td>
-                          <td className="p-3">{dinero(item.precio)}</td>
-                          <td className="p-3">
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={item.cantidad}
-                              onChange={(e) => handleCambiarCantidadItem(item.key, e.target.value)}
-                              className="campo w-20"
-                            />
-                          </td>
-                          <td className="p-3 font-bold text-slate-900">{dinero(item.precio * item.cantidad)}</td>
-                          <td className="p-3 text-right">
-                            <button onClick={() => handleQuitarItem(item.key)} className="btn-icono btn-icono-peligro" title="Quitar del carrito">
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="text-center py-8 px-4 rounded-xl bg-crema/60 border-[1.5px] border-dashed border-[#E2D9C8]">
+                  <img src="/marca/mascota.svg" alt="" className="h-12 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm text-gris-calido">Toca un producto para agregarlo al pedido.</p>
                 </div>
+              ) : (
+                <ul className="divide-y divide-[#F0EADF] -mx-1">
+                  {carrito.map(item => {
+                    const prod = productos.find(p => p.id === item.productoId);
+                    const variantes = prod ? [...new Set(obtenerLotesNorm(prod).map(l => l.variante))] : [];
+                    return (
+                      <li key={item.key} className="flex items-start gap-3 px-1 py-2.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold truncate">{item.nombre}</p>
+                          {variantes.length > 1 ? (
+                            <select
+                              value={item.variante}
+                              onChange={(e) => handleCambiarVarianteItem(item.key, e.target.value)}
+                              className="mt-0.5 text-[11px] text-gris-calido bg-transparent border-0 p-0 pr-4 focus:outline-none cursor-pointer"
+                              title="Variante o lote"
+                            >
+                              <option value="TODAS">Automático (FEFO)</option>
+                              {variantes.map(v => <option key={v} value={v}>{v}</option>)}
+                            </select>
+                          ) : (
+                            <p className="text-[11px] text-gris-calido">{dinero(item.precio)} c/u</p>
+                          )}
+                        </div>
+                        <div className="stepper shrink-0">
+                          <button onClick={() => handleCambiarCantidadItem(item.key, item.cantidad - 1)} aria-label="Quitar uno"><Minus size={14} /></button>
+                          <span>{item.cantidad}</span>
+                          <button onClick={() => handleCambiarCantidadItem(item.key, item.cantidad + 1)} aria-label="Agregar uno"><Plus size={14} /></button>
+                        </div>
+                        <p className="w-20 text-right text-sm font-bold shrink-0 pt-1">{dinero(item.precio * item.cantidad)}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-            </div>
 
-            <hr className="separador" />
+              <hr className="separador" />
 
-            {/* Paso 3: datos del cliente y pago, y confirmar */}
-            <p className="paso"><span className="paso-numero">3</span> Cliente y pago</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
-              <div>
-                <label className="etiqueta">Nombre del Cliente</label>
-                <input
-                  type="text"
-                  list="lista-clientes"
-                  placeholder={formVenta.pagado ? 'Ej. Juan Pérez (opcional)' : 'Obligatorio para fiar'}
-                  value={formVenta.cliente}
-                  onChange={(e) => setFormVenta({ ...formVenta, cliente: e.target.value })}
-                  className={`w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none ${
-                    !formVenta.pagado && !formVenta.cliente.trim() ? 'border-amber-400 bg-amber-50/50' : 'border-slate-300'
-                  }`}
-                />
-                <datalist id="lista-clientes">
-                  {clientes.map(c => <option key={c.id} value={c.nombre} />)}
-                </datalist>
-                {(() => {
-                  const c = buscarClientePorNombre(formVenta.cliente);
-                  if (!c) {
-                    return !formVenta.pagado && formVenta.cliente.trim()
-                      ? <p className="text-[11px] text-indigo-600 mt-1">Cliente nuevo: se registrará al guardar.</p>
-                      : null;
-                  }
-                  const deuda = cuentasClientes.find(cc => cc.cliente.id === c.id)?.deuda || 0;
-                  return deuda > 0
-                    ? <p className="text-[11px] text-amber-700 mt-1">Debe actualmente ${deuda.toLocaleString()}</p>
-                    : <p className="text-[11px] text-emerald-700 mt-1">Cliente registrado, sin deudas.</p>;
-                })()}
-              </div>
-
-              <div>
-                <label className="etiqueta">Medio de Pago</label>
-                <select
-                  value={formVenta.medioPago}
-                  onChange={(e) => setFormVenta({ ...formVenta, medioPago: e.target.value })}
-                  className="campo"
-                >
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="Transferencia">Transferencia</option>
-                  <option value="Tarjeta">Tarjeta</option>
-                  <option value="Otro">Otro</option>
-                </select>
-              </div>
-
-              {formVenta.medioPago === 'Otro' && (
+              <div className="space-y-4">
                 <div>
-                  <label className="etiqueta">Especificar Medio</label>
+                  <label className="etiqueta">Cliente {formVenta.pagado && <span className="font-normal text-gris-calido">(opcional)</span>}</label>
                   <input
                     type="text"
-                    placeholder="Ej. Nequi, Daviplata..."
-                    value={formVenta.otroMedioPago}
-                    onChange={(e) => setFormVenta({ ...formVenta, otroMedioPago: e.target.value })}
-                    className="campo"
+                    list="lista-clientes"
+                    placeholder={formVenta.pagado ? 'Cliente General' : 'Nombre de quien queda debiendo'}
+                    value={formVenta.cliente}
+                    onChange={(e) => setFormVenta({ ...formVenta, cliente: e.target.value })}
+                    className={`campo ${!formVenta.pagado && !formVenta.cliente.trim() ? '!border-sol !bg-amber-50' : ''}`}
                   />
+                  <datalist id="lista-clientes">
+                    {clientes.map(c => <option key={c.id} value={c.nombre} />)}
+                  </datalist>
+                  {clienteSeleccionado && deudaCliente > 0 && <p className="text-[11px] text-amber-700 mt-1 font-semibold">Debe actualmente {dinero(deudaCliente)}</p>}
+                  {!clienteSeleccionado && !formVenta.pagado && formVenta.cliente.trim() && <p className="text-[11px] text-gris-calido mt-1">Cliente nuevo: se registrará al guardar.</p>}
                 </div>
-              )}
 
-              <div>
-                <label className="etiqueta">Estado de Pago</label>
-                <select
-                  value={formVenta.pagado ? 'true' : 'false'}
-                  onChange={(e) => setFormVenta({ ...formVenta, pagado: e.target.value === 'true' })}
-                  className="campo"
-                >
-                  <option value="true">Pagado</option>
-                  <option value="false">Pendiente</option>
-                </select>
+                <div>
+                  <p className="etiqueta">Estado</p>
+                  <div className="segmentado">
+                    <button onClick={() => setFormVenta({ ...formVenta, pagado: true })} className={`segmento ${formVenta.pagado ? 'segmento-activo' : ''}`}>
+                      <CheckCircle size={14} /> Pagado
+                    </button>
+                    <button onClick={() => setFormVenta({ ...formVenta, pagado: false })} className={`segmento ${!formVenta.pagado ? 'segmento-activo-fiado' : ''}`}>
+                      <HandCoins size={14} /> Fiado
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="etiqueta">Medio de pago</p>
+                  <div className="segmentado">
+                    {['Efectivo', 'Transferencia', 'Tarjeta', 'Otro'].map(m => (
+                      <button key={m} onClick={() => setFormVenta({ ...formVenta, medioPago: m })} className={`segmento ${formVenta.medioPago === m ? 'segmento-activo' : ''}`}>
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                  {formVenta.medioPago === 'Otro' && (
+                    <input
+                      type="text"
+                      placeholder="¿Cuál? Ej. Nequi, Daviplata"
+                      value={formVenta.otroMedioPago}
+                      onChange={(e) => setFormVenta({ ...formVenta, otroMedioPago: e.target.value })}
+                      className="campo mt-2"
+                    />
+                  )}
+                </div>
               </div>
 
-              <div className={`flex flex-col gap-2 ${formVenta.medioPago === 'Otro' ? '' : 'lg:col-span-2'}`}>
-                <p className="text-right text-sm text-slate-600">
-                  Total: <span className="text-xl font-extrabold text-slate-900">{dinero(totalCarrito)}</span>
-                </p>
-                <button
-                  type="button"
-                  onClick={handleRegistrarVenta}
-                  disabled={carrito.length === 0 || guardandoVenta}
-                  className="btn btn-primario"
-                >
-                  {guardandoVenta ? 'Registrando...' : 'Registrar Venta'}
-                </button>
+              <hr className="separador" />
+
+              <div className="flex items-baseline justify-between mb-3">
+                <span className="kpi-etiqueta text-gris-calido">Total</span>
+                <span className="kpi-valor text-3xl">{dinero(totalCarrito)}</span>
               </div>
-            </div>
+              <button
+                type="button"
+                onClick={handleRegistrarVenta}
+                disabled={!puedeVender || carrito.length === 0 || guardandoVenta}
+                className={`btn w-full !py-3 !text-base ${formVenta.pagado ? 'btn-primario' : 'btn-oscuro'}`}
+              >
+                {guardandoVenta
+                  ? 'Registrando...'
+                  : formVenta.pagado ? <><CheckCircle size={18} /> Cobrar {dinero(totalCarrito)}</> : <><HandCoins size={18} /> Registrar fiado</>}
+              </button>
+            </aside>
           </div>
 
+          {/* ---------- Historial ---------- */}
           <div className="panel overflow-hidden mb-6">
             <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2] flex flex-wrap gap-3 justify-between items-center">
               <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><ClipboardList size={18} /> Historial de ventas</h2>
-              <button
-                onClick={handleBorrarVentasPagadas}
-                className="btn btn-peligro btn-sm no-print"
-              >
-                <Trash2 size={14} /> Borrar Ventas Pagadas
-              </button>
+              <div className="flex flex-wrap items-center gap-2 no-print">
+                <div className="segmentado !flex-nowrap">
+                  {[['todas', 'Todas'], ['pagadas', 'Pagadas'], ['pendientes', 'Pendientes']].map(([valor, texto]) => (
+                    <button key={valor} onClick={() => setFiltroVentas(valor)} className={`segmento !py-1 ${filtroVentas === valor ? 'segmento-activo' : ''}`}>{texto}</button>
+                  ))}
+                </div>
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gris-calido" />
+                  <input
+                    type="search"
+                    placeholder="Cliente o producto"
+                    value={busquedaVentas}
+                    onChange={(e) => setBusquedaVentas(e.target.value)}
+                    className="campo !py-1.5 pl-8 w-44"
+                  />
+                </div>
+                <MenuDesplegable etiqueta="" icono={<Ellipsis size={16} />} alinear="derecha" claseBoton="btn btn-claro btn-sm !px-2">
+                  <MenuTitulo>Acciones</MenuTitulo>
+                  <MenuItem icono={<Trash2 size={16} />} onClick={handleBorrarVentasPagadas} peligro detalle="Quedan copiadas en el Historial de cambios">
+                    Borrar ventas pagadas
+                  </MenuItem>
+                </MenuDesplegable>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1545,51 +1556,46 @@ export default function App({ usuario, onSesionVencida }) {
                   <tr>
                     <th className="p-3">Fecha</th>
                     <th className="p-3">Cliente</th>
-                    <th className="p-3">Producto</th>
-                    <th className="p-3">Variante</th>
-                    <th className="p-3">Cant</th>
-                    <th className="p-3">Total</th>
+                    <th className="p-3">Detalle</th>
+                    <th className="p-3 text-right">Total</th>
                     <th className="p-3">Pago</th>
                     <th className="p-3">Estado</th>
-                    <th className="p-3 text-right no-print">Acciones</th>
+                    <th className="p-3 no-print"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ventas.map((v) => (
-                    <tr key={v.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 text-slate-500 whitespace-nowrap">{v.fecha}<FirmaCambio item={v} /></td>
-                      <td className="p-3 font-medium text-slate-800">{v.cliente}</td>
-                      <td className="p-3 font-semibold text-indigo-600">{v.producto}</td>
-                      <td className="p-3 text-slate-500">{v.variante}</td>
-                      <td className="p-3">{v.cantidad}</td>
-                      <td className="p-3 font-bold text-slate-900">{dinero(v.total)}</td>
+                  {ventasFiltradas.map((v) => (
+                    <tr key={v.id}>
+                      <td className="p-3 text-gris-calido whitespace-nowrap">{v.fecha}<FirmaCambio item={v} /></td>
+                      <td className="p-3 font-semibold">{v.cliente}</td>
+                      <td className="p-3">
+                        <span className="font-semibold">{v.producto}</span> <span className="text-gris-calido">× {v.cantidad}</span>
+                        {v.variante && v.variante !== 'Auto (FEFO)' && <span className="block text-[11px] text-gris-calido">{v.variante}</span>}
+                      </td>
+                      <td className="p-3 font-bold text-right whitespace-nowrap">{dinero(v.total)}</td>
                       <td className="p-3"><span className="pastilla pastilla-neutra">{v.medioPago}</span></td>
                       <td className="p-3">
-                        <button 
+                        <button
                           onClick={() => togglePago(v.id, v.pagado)}
                           title="Cambiar estado de pago"
-                          className={`pastilla hover:brightness-95 transition ${
-                            v.pagado ? 'pastilla-ok' : 'pastilla-pendiente'
-                          }`}
+                          className={`pastilla hover:brightness-95 transition ${v.pagado ? 'pastilla-ok' : 'pastilla-pendiente'}`}
                         >
-                          {v.pagado ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                          {v.pagado ? 'Pagado' : 'Pendiente'}
+                          {v.pagado ? <CheckCircle size={12} /> : <HandCoins size={12} />}
+                          {v.pagado ? 'Pagado' : 'Fiado'}
                         </button>
                       </td>
                       <td className="p-3 text-right no-print">
-                        <button 
-                          onClick={() => eliminarVenta(v.id)}
-                          className="btn-icono btn-icono-peligro"
-                          title="Eliminar venta"
-                        >
+                        <button onClick={() => eliminarVenta(v.id)} className="btn-icono btn-icono-peligro" title="Eliminar venta">
                           <Trash2 size={16} />
                         </button>
                       </td>
                     </tr>
                   ))}
-                  {ventas.length === 0 && (
+                  {ventasFiltradas.length === 0 && (
                     <tr>
-                      <td colSpan="9" className="p-6 text-center text-slate-400">No hay ventas registradas todavía.</td>
+                      <td colSpan="7" className="p-8 text-center text-gris-calido">
+                        {ventas.length === 0 ? 'Todavía no hay ventas registradas.' : 'No hay ventas con ese filtro.'}
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -1597,7 +1603,8 @@ export default function App({ usuario, onSesionVencida }) {
             </div>
           </div>
         </>
-      )}
+        );
+      })()}
 
       {/* ==================== PESTAÑA CLIENTES Y FIADOS ==================== */}
       {pestana === 'clientes' && (
