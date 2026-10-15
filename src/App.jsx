@@ -1739,13 +1739,19 @@ export default function App({ usuario, onSesionVencida }) {
             <>
               <button
                 onClick={() => setPedidoAbierto(true)}
-                className={`fixed z-30 bottom-4 right-4 left-4 sm:left-auto btn !py-3 !px-5 !text-base shadow-[4px_4px_0_#28203B] no-print ${carrito.length ? 'btn-primario' : 'btn-claro'}`}
+                className="fixed z-30 bottom-4 right-4 left-4 sm:left-auto btn btn-oscuro !py-3 !px-5 !text-base !shadow-[4px_4px_0_#F8CB67] hover:!shadow-[5px_5px_0_#F8CB67] no-print"
                 aria-label="Abrir el pedido"
               >
                 <ShoppingCart size={18} />
                 {carrito.length === 0
-                  ? 'Pedido vacío'
-                  : <>Pedido · {unidadesCarrito} un. <span className="opacity-60">·</span> {dinero(totalCarrito)}</>}
+                  ? <span className="opacity-80">Pedido vacío</span>
+                  : (
+                    <>
+                      Pedido
+                      <span className="pastilla pastilla-pendiente !border-sol">{unidadesCarrito} un.</span>
+                      <span className="font-extrabold">{dinero(totalCarrito)}</span>
+                    </>
+                  )}
               </button>
 
               {pedidoAbierto && (
