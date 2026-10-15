@@ -1133,8 +1133,9 @@ export default function App({ usuario, onSesionVencida }) {
 
   if (cargando) {
     return (
-      <div className="flex justify-center items-center min-h-screen bg-slate-50 text-slate-600 font-sans">
-        <p className="font-semibold text-lg">Cargando datos desde la nube...</p>
+      <div className="flex flex-col justify-center items-center gap-4 min-h-screen marca-cabecera border-0 shadow-none text-tinta font-sans">
+        <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-20 w-20 animate-bounce" />
+        <p className="marca-eyebrow text-tinta">Cargando datos de la mesa...</p>
       </div>
     );
   }
@@ -1158,7 +1159,7 @@ export default function App({ usuario, onSesionVencida }) {
   }
 
   return (
-    <div className="p-4 md:p-6 bg-slate-50 min-h-screen text-slate-800 font-sans print:p-0 print:bg-white">
+    <div className="p-4 md:p-6 bg-papel min-h-screen text-tinta font-sans print:p-0 print:bg-white">
       <style>{`
         @media print {
           @page { size: letter portrait; margin: 1cm; }
@@ -1172,20 +1173,24 @@ export default function App({ usuario, onSesionVencida }) {
       `}</style>
 
       {/* Encabezado Principal */}
-      <header className="mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col lg:flex-row justify-between items-center gap-4 print-card print:mb-4">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-slate-900">Sistema de Control Financiero y Ventas</h1>
-          <p className="text-xs md:text-sm text-slate-500">
-            Comestibles — Fecha: {new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}
-          </p>
+      <header className="marca-cabecera mb-6 p-4 rounded-2xl flex flex-wrap justify-between items-center gap-4 print-card print:mb-4">
+        <div className="order-1 flex items-center gap-3">
+          <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-14 w-14 shrink-0" />
+          <div>
+            <p className="marca-eyebrow text-tinta/80">Tazón para Dos · Comestibles</p>
+            <h1 className="marca-titular text-xl md:text-2xl text-tinta leading-tight">Ventas y Finanzas</h1>
+            <p className="text-xs md:text-sm text-tinta/80 font-medium">
+              {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
         </div>
 
         {/* Pestañas */}
-        <div className="flex items-center gap-1.5 no-print bg-slate-100 p-1.5 rounded-xl border border-slate-200 flex-wrap justify-center">
+        <div className="order-3 w-full flex items-center gap-1.5 no-print bg-papel p-1.5 rounded-2xl border-2 border-tinta flex-wrap justify-center">
           <button 
             onClick={() => setPestana('ventas')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'ventas' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+              pestana === 'ventas' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
             }`}
           >
             <ShoppingBag size={16} /> Ventas & Cierre
@@ -1193,12 +1198,12 @@ export default function App({ usuario, onSesionVencida }) {
           <button
             onClick={() => setPestana('clientes')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'clientes' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+              pestana === 'clientes' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
             }`}
           >
             <Users size={16} /> Clientes
             {clientesConDeuda > 0 && (
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${pestana === 'clientes' ? 'bg-white text-indigo-700' : 'bg-amber-500 text-white'}`}>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${pestana === 'clientes' ? 'bg-sol text-tinta' : 'bg-coral text-tinta'}`}>
                 {clientesConDeuda}
               </span>
             )}
@@ -1206,7 +1211,7 @@ export default function App({ usuario, onSesionVencida }) {
           <button
             onClick={() => setPestana('estado_cuenta')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'estado_cuenta' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+              pestana === 'estado_cuenta' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
             }`}
           >
             <Wallet size={16} /> Estado de Cuenta
@@ -1214,7 +1219,7 @@ export default function App({ usuario, onSesionVencida }) {
           <button 
             onClick={() => setPestana('inventario')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'inventario' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+              pestana === 'inventario' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
             }`}
           >
             <Package size={16} /> Inventario
@@ -1222,7 +1227,7 @@ export default function App({ usuario, onSesionVencida }) {
           <button 
             onClick={() => setPestana('categorias')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'categorias' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+              pestana === 'categorias' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
             }`}
           >
             <Tag size={16} /> Categorías
@@ -1230,7 +1235,7 @@ export default function App({ usuario, onSesionVencida }) {
           <button 
             onClick={() => setPestana('catalogo')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'catalogo' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+              pestana === 'catalogo' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
             }`}
           >
             <BookOpen size={16} /> Carta
@@ -1238,7 +1243,7 @@ export default function App({ usuario, onSesionVencida }) {
           <button
             onClick={() => setPestana('socios')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'socios' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+              pestana === 'socios' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
             }`}
           >
             <Shield size={16} /> Socios
@@ -1246,7 +1251,7 @@ export default function App({ usuario, onSesionVencida }) {
           <button
             onClick={() => setPestana('historial')}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs md:text-sm transition ${
-              pestana === 'historial' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+              pestana === 'historial' ? 'bg-tinta text-crema shadow' : 'text-tinta/75 hover:text-tinta hover:bg-crema'
             }`}
           >
             <History size={16} /> Historial
@@ -1254,24 +1259,24 @@ export default function App({ usuario, onSesionVencida }) {
         </div>
 
         {/* Botones Telegram */}
-        <div className="flex items-center gap-2 no-print flex-wrap justify-center lg:justify-end">
+        <div className="order-2 flex items-center gap-2 no-print flex-wrap justify-center sm:justify-end">
           <button 
             onClick={handleEnviarAlertaStockTelegram}
-            className="flex items-center gap-1.5 bg-amber-500 text-white px-3 py-2 rounded-lg hover:bg-amber-600 transition shadow text-xs md:text-sm font-semibold"
+            className="marca-boton flex items-center gap-1.5 px-3 py-1.5 text-xs md:text-sm"
             title="Enviar alerta de stock a Telegram"
           >
             <AlertTriangle size={16} /> Alertar Stock
           </button>
           <button 
             onClick={handleEnviarReporteTelegram}
-            className="flex items-center gap-1.5 bg-sky-600 text-white px-3 py-2 rounded-lg hover:bg-sky-700 transition shadow text-xs md:text-sm font-semibold"
+            className="flex items-center gap-1.5 bg-papel text-tinta border-[3px] border-tinta rounded-full px-3 py-1.5 shadow-[3px_3px_0_#28203B] hover:bg-crema transition text-xs md:text-sm font-bold"
           >
             <Send size={16} /> Enviar Cierre
           </button>
           <button
             onClick={() => setPestana('perfil')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition shadow text-xs md:text-sm font-semibold ${
-              pestana === 'perfil' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50'
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border-[3px] border-tinta shadow-[3px_3px_0_#28203B] transition text-xs md:text-sm font-bold ${
+              pestana === 'perfil' ? 'bg-tinta text-crema' : 'bg-papel text-tinta hover:bg-crema'
             }`}
             title={`Sesión iniciada como ${usuario?.email || ''}`}
           >
@@ -1279,7 +1284,7 @@ export default function App({ usuario, onSesionVencida }) {
           </button>
           <button
             onClick={handleCerrarSesion}
-            className="flex items-center gap-1.5 bg-slate-800 text-white px-3 py-2 rounded-lg hover:bg-slate-900 transition shadow text-xs md:text-sm font-semibold"
+            className="flex items-center gap-1.5 bg-tinta text-crema border-[3px] border-tinta rounded-full px-3 py-1.5 shadow-[3px_3px_0_rgba(40,32,59,0.35)] hover:bg-slate-900 transition text-xs md:text-sm font-bold"
             title="Cerrar sesión"
           >
             <LogOut size={16} /> Salir

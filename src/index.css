@@ -1,1 +1,175 @@
 @import "tailwindcss";
+
+/* =====================================================================
+   Identidad de marca · Tazón para Dos  ("Jugar también es escuchar.")
+   Tokens tomados del kit de marca (brand/tokens.css). Se redefinen las
+   paletas de Tailwind para que toda la app use los colores oficiales:
+     indigo  -> tinta + turquesa   (acciones principales, pestañas)
+     slate   -> crema / papel / tinta (fondos, bordes, texto)
+     amber   -> sol                 (avisos, fiados)
+     rose    -> coral               (eliminar, gastos, errores)
+     emerald -> verde de marca      (pagado, confirmaciones)
+     sky/blue-> turquesa oscuro     (Telegram, reposición)
+   Regla de oro del manual: texto en tinta sobre color, o claro sobre tinta.
+   ===================================================================== */
+
+@theme {
+  /* Colores oficiales */
+  --color-tinta: #28203B;
+  --color-turquesa: #55C4BF;
+  --color-turquesa-claro: #8FD0CE;
+  --color-turquesa-oscuro: #46B5B1;
+  --color-coral: #EA6077;
+  --color-sol: #F8CB67;
+  --color-sol-claro: #FBD98A;
+  --color-crema: #F7F2E8;
+  --color-papel: #FFFDF8;
+  --color-gris-calido: #665F68;
+
+  /* indigo -> tinta (botones, pestaña activa) con matices turquesa */
+  --color-indigo-50: #EAF7F6;
+  --color-indigo-100: #D4F0EE;
+  --color-indigo-200: #A9E0DD;
+  --color-indigo-300: #8FD0CE;
+  --color-indigo-400: #55C4BF;
+  --color-indigo-500: #46B5B1;
+  --color-indigo-600: #28203B;
+  --color-indigo-700: #1C1630;
+  --color-indigo-800: #1C1630;
+  --color-indigo-900: #28203B;
+
+  /* slate -> neutros cálidos de la marca */
+  --color-slate-50: #FFFDF8;
+  --color-slate-100: #F7F2E8;
+  --color-slate-200: #E9E1D2;
+  --color-slate-300: #D6CCBA;
+  --color-slate-400: #9A929C;
+  --color-slate-500: #665F68;
+  --color-slate-600: #554C5C;
+  --color-slate-700: #3D3449;
+  --color-slate-800: #28203B;
+  --color-slate-900: #1C1630;
+
+  /* amber -> sol */
+  --color-amber-50: #FEF8EA;
+  --color-amber-100: #FDEFC9;
+  --color-amber-200: #FBD98A;
+  --color-amber-300: #F8CB67;
+  --color-amber-400: #F8CB67;
+  --color-amber-500: #F8CB67;
+  --color-amber-600: #B07A12;
+  --color-amber-700: #7A5308;
+  --color-amber-800: #5C3E06;
+
+  /* rose -> coral */
+  --color-rose-50: #FDEEF1;
+  --color-rose-100: #FAD7DE;
+  --color-rose-200: #F5B4C0;
+  --color-rose-500: #EA6077;
+  --color-rose-600: #C9425B;
+  --color-rose-700: #A3324A;
+
+  /* emerald -> verde de marca */
+  --color-emerald-50: #EDFBF3;
+  --color-emerald-100: #D3F6E2;
+  --color-emerald-200: #A8EDC5;
+  --color-emerald-600: #22744A;
+  --color-emerald-700: #1B5E3C;
+
+  /* sky / blue -> turquesa oscuro legible */
+  --color-sky-600: #237A76;
+  --color-sky-700: #1B605D;
+  --color-blue-50: #EAF7F6;
+  --color-blue-600: #237A76;
+
+  /* Tipografías del sitio web */
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Space Grotesk', 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+
+  /* Formas y sombras "pop y cómic" (sombra desplazada, sin desenfoque) */
+  --radius-xl: 1rem;
+  --radius-2xl: 1.375rem;
+  --shadow-sm: 0 4px 0 rgba(40, 32, 59, 0.14);
+  --shadow: 0 4px 0 rgba(40, 32, 59, 0.22);
+  --shadow-md: 0 6px 0 rgba(40, 32, 59, 0.18);
+  --shadow-lg: 8px 8px 0 rgba(40, 32, 59, 0.18);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-papel);
+    color: var(--color-tinta);
+    font-family: var(--font-sans);
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  /* Botones de acción: bordes redondeados de la marca */
+  button {
+    font-family: inherit;
+  }
+}
+
+@layer components {
+  /* Trama de puntos de la marca (22 px, tinta al 10 %) */
+  .marca-puntos {
+    background-image: radial-gradient(rgba(40, 32, 59, 0.10) 1.6px, transparent 1.7px);
+    background-size: 22px 22px;
+  }
+
+  /* Cabecera turquesa con puntos y franja crema en diagonal */
+  .marca-cabecera {
+    background-color: var(--color-turquesa);
+    background-image: radial-gradient(rgba(40, 32, 59, 0.10) 1.6px, transparent 1.7px);
+    background-size: 22px 22px;
+    border: 3px solid var(--color-tinta);
+    box-shadow: 0 6px 0 rgba(40, 32, 59, 0.18);
+  }
+
+  /* Titular con sombra cómic */
+  .marca-titular {
+    font-family: var(--font-display);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+  }
+
+  /* Eyebrow / etiquetas en mono */
+  .marca-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  /* Botón principal estilo marca: sol, borde tinta, sombra cómic */
+  .marca-boton {
+    background: var(--color-sol);
+    color: var(--color-tinta);
+    border: 3px solid var(--color-tinta);
+    border-radius: 999px;
+    box-shadow: 3px 3px 0 var(--color-tinta);
+    font-weight: 700;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .marca-boton:hover:not(:disabled) {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--color-tinta);
+  }
+  .marca-boton:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--color-tinta);
+  }
+
+  /* Tarjeta con contorno tinta (pantallas de acceso) */
+  .marca-tarjeta {
+    background: var(--color-papel);
+    border: 3px solid var(--color-tinta);
+    border-radius: 1.375rem;
+    box-shadow: 8px 8px 0 rgba(40, 32, 59, 0.18);
+  }
+}

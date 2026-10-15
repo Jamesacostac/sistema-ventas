@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from './firebase';
-import { Lock, LogIn } from 'lucide-react';
+import { LogIn } from 'lucide-react';
 
 const mensajesError = {
   'auth/invalid-credential': 'Correo o contraseña incorrectos.',
@@ -45,14 +45,12 @@ export default function Login() {
   };
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-slate-50 text-slate-800 font-sans p-4">
-      <div className="w-full max-w-sm bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="flex flex-col items-center mb-6">
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl mb-3">
-            <Lock size={24} />
-          </div>
-          <h1 className="text-xl font-bold text-slate-900">Sistema de Control Financiero y Ventas</h1>
-          <p className="text-xs text-slate-500 mt-1">Acceso exclusivo para administradores</p>
+    <div className="flex flex-col justify-center items-center min-h-screen marca-cabecera border-0 shadow-none text-tinta font-sans p-4">
+      <div className="w-full max-w-sm marca-tarjeta p-6">
+        <div className="flex flex-col items-center mb-6 text-center">
+          <img src="/marca/logotipo-horizontal.svg" alt="Tazón para Dos" className="w-60 mb-4" />
+          <p className="marca-eyebrow text-gris-calido">Comestibles · Control de ventas</p>
+          <p className="text-xs text-slate-500 mt-1">Acceso exclusivo para el equipo administrador</p>
         </div>
 
         <form onSubmit={handleIngresar} className="space-y-4">
@@ -85,7 +83,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={enviando}
-            className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow disabled:opacity-60"
+            className="marca-boton w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm disabled:opacity-60"
           >
             <LogIn size={16} /> {enviando ? 'Ingresando...' : 'Ingresar'}
           </button>
@@ -99,6 +97,7 @@ export default function Login() {
           ¿Olvidaste tu contraseña?
         </button>
       </div>
+      <p className="marca-eyebrow text-tinta/80 mt-6 text-center">Jugar también es escuchar · Engativá, Bogotá</p>
     </div>
   );
 }

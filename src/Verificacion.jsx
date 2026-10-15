@@ -83,12 +83,10 @@ export default function Verificacion({ usuario, onVerificada }) {
   };
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-slate-50 text-slate-800 font-sans p-4">
-      <div className="w-full max-w-sm bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+    <div className="flex justify-center items-center min-h-screen marca-cabecera border-0 shadow-none text-tinta font-sans p-4">
+      <div className="w-full max-w-sm marca-tarjeta p-6">
         <div className="flex flex-col items-center mb-5 text-center">
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl mb-3">
-            <ShieldCheck size={24} />
-          </div>
+          <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-16 w-16 mb-3" />
           <h1 className="text-lg font-bold text-slate-900">Verificación de dispositivo</h1>
           <p className="text-xs text-slate-500 mt-1">{usuario.email}</p>
         </div>
@@ -146,7 +144,7 @@ export default function Verificacion({ usuario, onVerificada }) {
             <button
               type="submit"
               disabled={verificando || codigo.length !== 6}
-              className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition shadow disabled:opacity-50"
+              className="marca-boton w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm disabled:opacity-50"
             >
               <ShieldCheck size={16} /> {verificando ? 'Verificando...' : 'Verificar'}
             </button>
