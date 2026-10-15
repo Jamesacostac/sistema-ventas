@@ -32,4 +32,3 @@ contexto .pdf
 # Servidor de verificación (Cloudflare)
 servidor/.wrangler/
 servidor/.dev.vars
-.env

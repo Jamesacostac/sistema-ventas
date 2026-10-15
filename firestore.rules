@@ -22,7 +22,7 @@ service cloud.firestore {
 
     // UID de la cuenta interna del servidor de verificación (no es un secreto)
     function esServidor() {
-      return request.auth != null && request.auth.uid == 'UID_SERVIDOR';
+      return request.auth != null && request.auth.uid == 'KApad2bGo6bdG36MT84ew6bayio2';
     }
 
     function rutaPerfil() {
