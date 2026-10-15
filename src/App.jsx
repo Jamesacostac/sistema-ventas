@@ -17,7 +17,7 @@ import {
   CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
   HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
-  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive
 } from 'lucide-react';
 
 // Formato de dinero colombiano: $12.500
@@ -246,7 +246,7 @@ export default function App({ usuario, onSesionVencida }) {
 
   // Reportes Telegram
   const generarYEnviarReporteCierre = async (listaVentas) => {
-    const ventasPagadas = (listaVentas || ventas).filter(v => v.pagado);
+    const ventasPagadas = (listaVentas || ventas).filter(v => v.pagado && !v.archivada);
     const totalIngresos = ventasPagadas.reduce((acc, v) => acc + v.total, 0);
     const totalReposicion = ventasPagadas.reduce((acc, v) => acc + v.costoTotal, 0);
     const gananciaBruta = ventasPagadas.reduce((acc, v) => acc + v.ganancia, 0);
@@ -262,7 +262,7 @@ export default function App({ usuario, onSesionVencida }) {
     const reporteTexto = 
       `📊 <b>INFORME DE CIERRE DE VENTAS</b>\n` +
       `📅 Fecha: ${fechaActual}\n\n` +
-      `💰 <b>Ventas Pagadas Hoy:</b> $${totalIngresos.toLocaleString()}\n` +
+      `💰 <b>Ventas pagadas del período:</b> $${totalIngresos.toLocaleString()}\n` +
       `🔄 <b>Fondo Reposición:</b> $${totalReposicion.toLocaleString()}\n` +
       `🌱 <b>Fondo Ahorro (15%):</b> $${ahorro.toLocaleString()}\n` +
       `👥 <b>Pago por Socio (3):</b> $${pagoSocio.toLocaleString(undefined, {maximumFractionDigits: 0})}\n\n` +
@@ -947,7 +947,7 @@ export default function App({ usuario, onSesionVencida }) {
       concepto: g.concepto || '',
       monto: g.monto || '',
       tipo: g.tipo || 'Proveedor',
-      detalle: g.detalle || ''
+      detalle: g.detalle === 'Sin observaciones adicionales' ? '' : (g.detalle || '')
     });
   };
 
@@ -1007,23 +1007,34 @@ export default function App({ usuario, onSesionVencida }) {
     }
   };
 
-  const handleBorrarVentasPagadas = async () => {
-    if (!exigir('ventas_editar', 'eliminar ventas')) return;
-    const ventasPagadasList = ventas.filter(v => v.pagado);
-    if (ventasPagadasList.length === 0) {
-      return alert("No hay ventas pagadas para eliminar.");
-    }
+  // Cierre de caja: archiva las ventas pagadas del período (NO las borra).
+  // Los indicadores de Ventas empiezan de cero, pero el efectivo en caja y el
+  // punto cero siguen contando todas las ventas, así que el dinero no desaparece.
+  const handleCerrarCaja = async () => {
+    if (!exigir('ventas_editar', 'cerrar la caja')) return;
+    const porCerrar = ventas.filter(v => v.pagado && !v.archivada);
+    if (porCerrar.length === 0) return alert("No hay ventas pagadas pendientes de cierre.");
 
-    if (confirm(`¿Estás seguro de eliminar las ${ventasPagadasList.length} ventas ya PAGADAS? Se conservarán solo las pendientes por cobrar.\n\nCada venta borrada queda guardada en el Historial de cambios.`)) {
-      try {
-        const total = ventasPagadasList.reduce((acc, v) => acc + v.total, 0);
-        const op = operacion('Ventas pagadas borradas', `${ventasPagadasList.length} ventas por $${total.toLocaleString()}`);
-        ventasPagadasList.forEach(v => op.eliminar(doc(db, 'ventas', v.id), v));
-        await op.guardar();
-        alert("Se eliminaron con éxito las ventas pagadas.");
-      } catch (error) {
-        alert("Error al borrar ventas pagadas: " + error.message);
-      }
+    const total = porCerrar.reduce((acc, v) => acc + v.total, 0);
+    const efectivo = porCerrar.filter(v => v.medioPago === 'Efectivo').reduce((acc, v) => acc + v.total, 0);
+    if (!confirm(
+      `¿Cerrar la caja?\n\n` +
+      `• ${porCerrar.length} venta(s) pagadas por ${dinero(total)} (en efectivo: ${dinero(efectivo)})\n` +
+      `• Se enviará el informe de cierre a Telegram\n` +
+      `• Los indicadores de Ventas vuelven a cero para el nuevo período\n\n` +
+      `Las ventas NO se borran: quedan archivadas (filtro "Cerradas") y el efectivo en caja no cambia. Los fiados siguen pendientes.`
+    )) return;
+
+    try {
+      await generarYEnviarReporteCierre(ventas);
+      const fechaCierre = new Date().toISOString();
+      const cierreId = `cierre_${Date.now()}`;
+      const op = operacion('Cierre de caja', `${porCerrar.length} ventas por ${dinero(total)} (efectivo ${dinero(efectivo)})`);
+      porCerrar.forEach(v => op.actualizar(doc(db, 'ventas', v.id), { archivada: true, cierreId, fechaCierre }, v));
+      await op.guardar();
+      alert("Caja cerrada. Las ventas quedaron archivadas y el efectivo en caja se mantiene.");
+    } catch (error) {
+      alert("Error al cerrar la caja: " + error.message);
     }
   };
 
@@ -1084,8 +1095,11 @@ export default function App({ usuario, onSesionVencida }) {
 
   const eliminarVenta = async (id) => {
     if (!exigir('ventas_editar', 'eliminar ventas')) return;
-    if (!confirm("¿Eliminar esta venta?")) return;
     const venta = ventas.find(v => v.id === id);
+    const aviso = venta?.pagado && venta?.medioPago === 'Efectivo'
+      ? `\n\nOjo: es una venta pagada en efectivo. Al eliminarla, ${dinero(venta.total)} saldrán del efectivo en caja. Úsalo solo si la venta fue un error; para cerrar el día usa "Cerrar caja".`
+      : '';
+    if (!confirm("¿Eliminar esta venta?" + aviso)) return;
     try {
       const op = operacion('Venta eliminada', `${venta?.cliente} — ${venta?.producto} x${venta?.cantidad} $${(venta?.total || 0).toLocaleString()}`);
       op.eliminar(doc(db, 'ventas', id), venta);
@@ -1096,10 +1110,14 @@ export default function App({ usuario, onSesionVencida }) {
   };
 
   // Cuentas financieras dinámicas
-  const ventasPagadas = ventas.filter(v => v.pagado);
-  const totalVentasEfectivoCobrado = ventasPagadas
+  // - Período abierto (desde el último cierre de caja): indicadores de Ventas
+  // - Todo el histórico (incluye ventas archivadas): efectivo en caja y punto cero
+  const ventasPagadasHistorico = ventas.filter(v => v.pagado);
+  const ventasPagadas = ventasPagadasHistorico.filter(v => !v.archivada);
+  const totalVentasEfectivoCobrado = ventasPagadasHistorico
     .filter(v => v.medioPago === 'Efectivo')
     .reduce((acc, v) => acc + v.total, 0);
+  const totalReposicionHistorica = ventasPagadasHistorico.reduce((acc, v) => acc + v.costoTotal, 0);
 
   const totalIngresosDia = ventasPagadas.reduce((acc, v) => acc + v.total, 0);
   const totalReposicionDia = ventasPagadas.reduce((acc, v) => acc + v.costoTotal, 0);
@@ -1116,7 +1134,7 @@ export default function App({ usuario, onSesionVencida }) {
 
   // CORRECCIÓN SOLICITADA EN ESTADO DE CUENTA: Efectivo total limpio sin restar gastos totales
   const efectivoTotalEnCaja = cajaInicial + totalVentasEfectivoCobrado;
-  const estadoPuntoCeroReposicion = totalReposicionDia - gastosEnReposiciones;
+  const estadoPuntoCeroReposicion = totalReposicionHistorica - gastosEnReposiciones;
 
   const handleEnviarReporteTelegram = async () => {
     const exito = await generarYEnviarReporteCierre(ventas);
@@ -1320,7 +1338,8 @@ export default function App({ usuario, onSesionVencida }) {
         // Historial filtrado
         const textoVentas = normalizarNombre(busquedaVentas);
         const ventasFiltradas = ventas
-          .filter(v => filtroVentas === 'todas' || (filtroVentas === 'pagadas' ? v.pagado : !v.pagado))
+          .filter(v => filtroVentas === 'cerradas' ? v.archivada
+            : !v.archivada && (filtroVentas === 'todas' || (filtroVentas === 'pagadas' ? v.pagado : !v.pagado)))
           .filter(v => !textoVentas || normalizarNombre(`${v.cliente} ${v.producto}`).includes(textoVentas));
 
         const clienteSeleccionado = buscarClientePorNombre(formVenta.cliente);
@@ -1527,7 +1546,7 @@ export default function App({ usuario, onSesionVencida }) {
               <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><ClipboardList size={18} /> Historial de ventas</h2>
               <div className="flex flex-wrap items-center gap-2 no-print">
                 <div className="segmentado !flex-nowrap">
-                  {[['todas', 'Todas'], ['pagadas', 'Pagadas'], ['pendientes', 'Pendientes']].map(([valor, texto]) => (
+                  {[['todas', 'Abiertas'], ['pagadas', 'Pagadas'], ['pendientes', 'Fiadas'], ['cerradas', 'Cerradas']].map(([valor, texto]) => (
                     <button key={valor} onClick={() => setFiltroVentas(valor)} className={`segmento !py-1 ${filtroVentas === valor ? 'segmento-activo' : ''}`}>{texto}</button>
                   ))}
                 </div>
@@ -1543,8 +1562,8 @@ export default function App({ usuario, onSesionVencida }) {
                 </div>
                 <MenuDesplegable etiqueta="" icono={<Ellipsis size={16} />} alinear="derecha" claseBoton="btn btn-claro btn-sm !px-2">
                   <MenuTitulo>Acciones</MenuTitulo>
-                  <MenuItem icono={<Trash2 size={16} />} onClick={handleBorrarVentasPagadas} peligro detalle="Quedan copiadas en el Historial de cambios">
-                    Borrar ventas pagadas
+                  <MenuItem icono={<Archive size={16} />} onClick={handleCerrarCaja} detalle="Archiva las pagadas y envía el informe; el efectivo no cambia">
+                    Cerrar caja
                   </MenuItem>
                 </MenuDesplegable>
               </div>
@@ -1583,6 +1602,7 @@ export default function App({ usuario, onSesionVencida }) {
                           {v.pagado ? <CheckCircle size={12} /> : <HandCoins size={12} />}
                           {v.pagado ? 'Pagado' : 'Fiado'}
                         </button>
+                        {v.archivada && <span className="block mt-1 text-[10px] text-gris-calido whitespace-nowrap">Cerrada {v.fechaCierre?.slice(0, 10)}</span>}
                       </td>
                       <td className="p-3 text-right no-print">
                         <button onClick={() => eliminarVenta(v.id)} className="btn-icono btn-icono-peligro" title="Eliminar venta">
@@ -1594,7 +1614,7 @@ export default function App({ usuario, onSesionVencida }) {
                   {ventasFiltradas.length === 0 && (
                     <tr>
                       <td colSpan="7" className="p-8 text-center text-gris-calido">
-                        {ventas.length === 0 ? 'Todavía no hay ventas registradas.' : 'No hay ventas con ese filtro.'}
+                        {ventas.length === 0 ? 'Todavía no hay ventas registradas.' : filtroVentas === 'cerradas' ? 'Todavía no hay cierres de caja.' : 'No hay ventas con ese filtro.'}
                       </td>
                     </tr>
                   )}
@@ -1988,6 +2008,16 @@ export default function App({ usuario, onSesionVencida }) {
                   <option value="Otro">Otro Egreso</option>
                 </select>
               </div>
+              <div className="md:col-span-3">
+                <label className="etiqueta">Detalle <span className="font-normal text-gris-calido">(opcional)</span></label>
+                <input
+                  type="text"
+                  placeholder="Ej. 2 kg de limón en la plaza de Engativá, pagado en efectivo"
+                  value={formGasto.detalle}
+                  onChange={(e) => setFormGasto({ ...formGasto, detalle: e.target.value })}
+                  className="campo"
+                />
+              </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
@@ -2017,33 +2047,77 @@ export default function App({ usuario, onSesionVencida }) {
               <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
                 <thead>
                   <tr>
-                    <th className="p-3">Fecha</th>
+                    <th className="p-3 w-10"></th>
                     <th className="p-3">Concepto</th>
                     <th className="p-3">Tipo</th>
-                    <th className="p-3">Monto</th>
-                    <th className="p-3 text-right">Acciones</th>
+                    <th className="p-3 text-right">Monto</th>
+                    <th className="p-3">Fecha</th>
+                    <th className="p-3 text-right no-print">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {gastos.map((g) => (
-                    <tr key={g.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 text-slate-500 whitespace-nowrap">{g.fecha}<FirmaCambio item={g} /></td>
-                      <td className="p-3 font-medium text-slate-800">{g.concepto}</td>
-                      <td className="p-3"><span className="pastilla pastilla-neutra">{g.tipo}</span></td>
-                      <td className="p-3 font-bold text-rose-600">{dinero(g.monto)}</td>
-                      <td className="p-3 text-right flex justify-end gap-2">
-                        <button onClick={() => iniciarEdicionGasto(g)} className="btn-icono" title="Editar gasto">
-                          <Edit2 size={16} />
-                        </button>
-                        <button onClick={() => eliminarGasto(g.id)} className="btn-icono btn-icono-peligro" title="Eliminar gasto">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {gastos.map((g) => {
+                    const abierto = gastoExpandidoId === g.id;
+                    const tieneDetalle = g.detalle && g.detalle !== 'Sin observaciones adicionales';
+                    return (
+                      <React.Fragment key={g.id}>
+                        <tr
+                          onClick={() => setGastoExpandidoId(abierto ? null : g.id)}
+                          className={`cursor-pointer ${abierto ? '!bg-crema/60' : ''}`}
+                        >
+                          <td className="p-3">
+                            <button
+                              className="btn-icono"
+                              aria-expanded={abierto}
+                              title={abierto ? 'Ocultar detalle' : 'Ver detalle'}
+                              onClick={(e) => { e.stopPropagation(); setGastoExpandidoId(abierto ? null : g.id); }}
+                            >
+                              <ChevronDown size={16} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} />
+                            </button>
+                          </td>
+                          <td className="p-3">
+                            <span className="font-semibold">{g.concepto}</span>
+                            {tieneDetalle && !abierto && <span className="block text-[11px] text-gris-calido truncate max-w-[16rem]">{g.detalle}</span>}
+                          </td>
+                          <td className="p-3"><span className="pastilla pastilla-neutra">{g.tipo}</span></td>
+                          <td className="p-3 font-bold text-right whitespace-nowrap">{dinero(g.monto)}</td>
+                          <td className="p-3 text-gris-calido whitespace-nowrap">{g.fecha}</td>
+                          <td className="p-3 no-print" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-end gap-1">
+                              <button onClick={() => iniciarEdicionGasto(g)} className="btn-icono" title="Editar gasto">
+                                <Edit2 size={16} />
+                              </button>
+                              <button onClick={() => eliminarGasto(g.id)} className="btn-icono btn-icono-peligro" title="Eliminar gasto">
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {abierto && (
+                          <tr className="!bg-crema/40">
+                            <td></td>
+                            <td colSpan="5" className="px-3 pb-4 pt-1">
+                              <dl className="grid grid-cols-1 sm:grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5 text-xs md:text-sm">
+                                <dt className="kpi-etiqueta text-gris-calido pt-0.5">Concepto</dt>
+                                <dd className="font-semibold">{g.concepto}</dd>
+                                <dt className="kpi-etiqueta text-gris-calido pt-0.5">Detalle</dt>
+                                <dd className={tieneDetalle ? '' : 'text-gris-calido italic'}>{tieneDetalle ? g.detalle : 'Sin observaciones'}</dd>
+                                <dt className="kpi-etiqueta text-gris-calido pt-0.5">Tipo</dt>
+                                <dd>{g.tipo}{['Proveedor', 'Compra Productos'].includes(g.tipo) && <span className="text-gris-calido"> · cuenta para el punto cero</span>}</dd>
+                                <dt className="kpi-etiqueta text-gris-calido pt-0.5">Monto</dt>
+                                <dd className="font-bold">{dinero(g.monto)}</dd>
+                                <dt className="kpi-etiqueta text-gris-calido pt-0.5">Registro</dt>
+                                <dd>{g.fecha}{firmaCambio(g) && <span className="text-gris-calido"> · último cambio: {firmaCambio(g)}</span>}</dd>
+                              </dl>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                   {gastos.length === 0 && (
                     <tr>
-                      <td colSpan="5" className="p-6 text-center text-slate-400">No hay gastos registrados.</td>
+                      <td colSpan="6" className="p-6 text-center text-gris-calido">No hay gastos registrados.</td>
                     </tr>
                   )}
                 </tbody>
