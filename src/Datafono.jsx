@@ -30,6 +30,8 @@ export const calcularCobroTarjeta = (base, t) => {
   let cobrar = Math.ceil(base / (1 - tasa));
   // Ajuste por redondeo de cada tarifa: que lo que llegue nunca quede por debajo de la venta
   while (desglose(cobrar, t).llega < base) cobrar++;
+  // …y el mínimo posible, para que llegue lo más exacto al valor de la venta
+  while (cobrar > base && desglose(cobrar - 1, t).llega >= base) cobrar--;
   return { cobrar, recargo: cobrar - base, ...desglose(cobrar, t) };
 };
 

@@ -291,7 +291,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
   // Reportes Telegram
   const generarYEnviarReporteCierre = async (listaVentas) => {
-    const ventasPagadas = (listaVentas || ventas).filter(v => v.pagado && !v.archivada);
+    // El recargo por tarjeta no es ingreso del negocio (se lo queda el datáfono)
+    const ventasPagadas = (listaVentas || ventas).filter(v => v.pagado && !v.archivada && !v.esRecargo);
     const totalIngresos = ventasPagadas.reduce((acc, v) => acc + v.total, 0);
     const totalReposicion = ventasPagadas.reduce((acc, v) => acc + v.costoTotal, 0);
     const gananciaBruta = ventasPagadas.reduce((acc, v) => acc + v.ganancia, 0);
@@ -1134,8 +1135,9 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     const porCerrar = ventas.filter(v => v.pagado && !v.archivada);
     if (porCerrar.length === 0) return alert("No hay ventas pagadas pendientes de cierre.");
 
-    const total = porCerrar.reduce((acc, v) => acc + v.total, 0);
-    const efectivo = porCerrar.filter(v => v.medioPago === 'Efectivo').reduce((acc, v) => acc + v.total, 0);
+    const ingresos = porCerrar.filter(v => !v.esRecargo);
+    const total = ingresos.reduce((acc, v) => acc + v.total, 0);
+    const efectivo = ingresos.filter(v => v.medioPago === 'Efectivo').reduce((acc, v) => acc + v.total, 0);
     if (!confirm(
       `¿Cerrar la caja?\n\n` +
       `• ${porCerrar.length} venta(s) pagadas por ${dinero(total)} (en efectivo: ${dinero(efectivo)})\n` +
@@ -1330,7 +1332,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   // Cuentas financieras dinámicas
   // - Período abierto (desde el último cierre de caja): indicadores de Ventas
   // - Todo el histórico (incluye ventas archivadas): efectivo en caja y punto cero
-  const ventasPagadasHistorico = ventas.filter(v => v.pagado);
+  // El recargo por tarjeta se excluye: lo cobra el cliente pero lo recibe el datáfono, no el negocio
+  const ventasPagadasHistorico = ventas.filter(v => v.pagado && !v.esRecargo);
   const ventasPagadas = ventasPagadasHistorico.filter(v => !v.archivada);
   const totalVentasEfectivoCobrado = ventasPagadasHistorico
     .filter(v => v.medioPago === 'Efectivo')
@@ -1767,6 +1770,12 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                 <span className="kpi-etiqueta text-gris-calido">{aplicaRecargo ? 'Total a cobrar' : 'Total'}</span>
                 <span className="kpi-valor text-3xl">{dinero(totalACobrar)}</span>
               </div>
+              {aplicaRecargo && (
+                <div className="flex items-center justify-between text-xs mb-3 -mt-1 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <span className="text-gris-calido">{datafonoActivo.nombre} descuenta {dinero(cobroTarjeta.total)} · <b className="text-tinta">te llega</b></span>
+                  <b className="text-emerald-700 text-sm">{dinero(cobroTarjeta.llega)}</b>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleRegistrarVenta}
@@ -1972,11 +1981,13 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                       <td className="p-3 text-gris-calido whitespace-nowrap hidden md:table-cell">{v.fecha}<FirmaCambio item={v} /></td>
                       <td className="p-3 font-semibold">{v.cliente}</td>
                       <td className="p-3">
-                        <span className="font-semibold">{v.producto}</span> <span className="text-gris-calido">× {v.cantidad}</span>
+                        {v.esRecargo
+                          ? <span className="text-gris-calido italic">Tarifa del datáfono ({v.tarifa?.datafono || 'tarjeta'}) · no es ingreso, la recibe el datáfono</span>
+                          : <><span className="font-semibold">{v.producto}</span> <span className="text-gris-calido">× {v.cantidad}</span></>}
                         <span className="block md:hidden text-[11px] text-gris-calido">{v.fecha} · {v.medioPago}</span>
                         {v.variante && v.variante !== 'Auto (FEFO)' && <span className="block text-[11px] text-gris-calido">{v.variante}</span>}
                       </td>
-                      <td className="p-3 font-bold text-right whitespace-nowrap">{dinero(v.total)}</td>
+                      <td className={`p-3 text-right whitespace-nowrap ${v.esRecargo ? 'text-gris-calido' : 'font-bold'}`}>{v.esRecargo ? `(${dinero(v.total)})` : dinero(v.total)}</td>
                       <td className="p-3 hidden sm:table-cell"><span className="pastilla pastilla-neutra">{v.medioPago}</span></td>
                       <td className="p-3">
                         <button
