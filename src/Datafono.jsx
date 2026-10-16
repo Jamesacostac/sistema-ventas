@@ -154,20 +154,34 @@ export function ConfigDatafono({ negocioId, negocio, esTitular, operacion }) {
         </label>
       </fieldset>
 
+      {/* Ejemplo paso a paso, igual que en el pedido */}
       <div className="mt-4 rounded-xl border-[1.5px] border-[#E9E1D2] p-4 text-sm">
-        <p className="kpi-etiqueta text-gris-calido mb-2">Ejemplo con {activo.nombre || 'el datáfono'} y una venta de {dinero(ejemplo)}</p>
-        <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
-          <span>Comisión ({num(activo.comision)} %)</span><span className="text-right text-rose-600">-{dinero(sinRecargo.comision)}</span>
-          <span>IVA de la comisión ({num(activo.iva)} %)</span><span className="text-right text-rose-600">-{dinero(sinRecargo.iva)}</span>
-          <span>Retefuente de la venta ({num(activo.retefuente)} %)</span><span className="text-right text-rose-600">-{dinero(sinRecargo.retefuente)}</span>
-          <span className="font-bold border-t border-[#E9E1D2] pt-1">Sin recargo te llegan</span><span className="text-right font-bold border-t border-[#E9E1D2] pt-1">{dinero(sinRecargo.llega)}</span>
-          {cobrarAlCliente && (
-            <>
-              <span className="font-bold text-emerald-700">Cobrando {dinero(conRecargo.cobrar)} (+{dinero(conRecargo.recargo)})</span>
-              <span className="text-right font-bold text-emerald-700">te llegan {dinero(conRecargo.llega)}</span>
-            </>
-          )}
-        </div>
+        <p className="kpi-etiqueta text-gris-calido mb-3">Ejemplo con {activo.nombre || 'el datáfono'}: venta de {dinero(ejemplo)} pagada con tarjeta</p>
+        {(() => {
+          const caso = cobrarAlCliente ? conRecargo : { ...sinRecargo, cobrar: ejemplo, recargo: 0 };
+          const Fila = ({ texto, valor, clase = '' }) => (
+            <div className={`flex justify-between gap-4 ${clase}`}><span>{texto}</span><span className="text-right whitespace-nowrap">{valor}</span></div>
+          );
+          return (
+            <div className="space-y-1">
+              <Fila texto="1. Valor de la venta" valor={dinero(ejemplo)} />
+              {cobrarAlCliente && <Fila texto="2. Se suma el recargo de tarjeta" valor={`+${dinero(caso.recargo)}`} clase="text-gris-calido" />}
+              <Fila texto={`${cobrarAlCliente ? '3' : '2'}. El cliente paga`} valor={dinero(caso.cobrar)} clase="font-bold border-t border-[#E9E1D2] pt-1" />
+              <p className="text-xs text-gris-calido pt-1">{activo.nombre || 'El datáfono'} descuenta sobre {dinero(caso.cobrar)}:</p>
+              <Fila texto={`Comisión (${num(activo.comision)} %)`} valor={`−${dinero(caso.comision)}`} clase="text-rose-600 pl-3" />
+              <Fila texto={`IVA de la comisión (${num(activo.iva)} %)`} valor={`−${dinero(caso.iva)}`} clase="text-rose-600 pl-3" />
+              <Fila texto={`Retefuente (${num(activo.retefuente)} %)`} valor={`−${dinero(caso.retefuente)}`} clase="text-rose-600 pl-3" />
+              <div className={`flex justify-between gap-4 mt-2 px-3 py-2 rounded-lg font-bold ${caso.llega >= ejemplo ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
+                <span>Te llegan</span><span>{dinero(caso.llega)}</span>
+              </div>
+              <p className="text-xs text-gris-calido">
+                {cobrarAlCliente
+                  ? 'El recargo lo paga el cliente y se lo queda el datáfono: tu venta queda completa.'
+                  : `El negocio asume la tarifa: de cada ${dinero(ejemplo)} te llegan ${dinero(caso.llega)}.`}
+              </p>
+            </div>
+          );
+        })()}
       </div>
 
       {estado && <p className={`mt-3 aviso ${estado.tipo === 'error' ? 'aviso-error' : 'aviso-ok'}`}>{estado.texto}</p>}
