@@ -8,6 +8,7 @@ import { cerrarSesion } from './servidor';
 import Perfil from './Perfil';
 import ConfigNegocio from './ConfigNegocio';
 import { colorNegocio, ID_TAZON, FormNuevoNegocio } from './negociosComun';
+import { useConfigDatafono, calcularCobroTarjeta, desglose, DATAFONO_POR_DEFECTO } from './Datafono';
 import Socios from './Socios';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -583,6 +584,9 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   // ==================== CARRITO DE COMPRAS ====================
   const [carrito, setCarrito] = useState([]);
   const [ventanaNegocio, setVentanaNegocio] = useState(false);
+  // Tarifas del datáfono del negocio (Mi perfil → Datáfono y tarifas de tarjeta)
+  const configDatafono = useConfigDatafono(negocioId);
+  const [datafonoId, setDatafonoId] = useState(null);
   // En PC (≥ 1536 px) el pedido es una columna fija; en celular, tablet y portátil es una ventana flotante
   const esPC = usePantalla('(min-width: 1536px)');
   const [pedidoAbierto, setPedidoAbierto] = useState(false);
@@ -708,6 +712,15 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   const totalCarrito = carrito.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
   const unidadesCarrito = carrito.reduce((acc, i) => acc + i.cantidad, 0);
 
+  // Pago con tarjeta: se suma la tarifa del datáfono para que al negocio le llegue completo
+  const datafonos = configDatafono?.datafonos?.length ? configDatafono.datafonos : [DATAFONO_POR_DEFECTO];
+  const datafonoActivo = datafonos.find(d => d.id === datafonoId)
+    || datafonos.find(d => d.id === configDatafono?.predeterminado)
+    || datafonos[0];
+  const cobroTarjeta = formVenta.medioPago === 'Tarjeta' && totalCarrito > 0 ? calcularCobroTarjeta(totalCarrito, datafonoActivo) : null;
+  const aplicaRecargo = !!cobroTarjeta && formVenta.pagado && configDatafono?.cobrarAlCliente !== false && cobroTarjeta.recargo > 0;
+  const totalACobrar = aplicaRecargo ? cobroTarjeta.cobrar : totalCarrito;
+
   // Registra todo el carrito en una sola operación atómica (writeBatch):
   // una venta por ítem + la actualización de lotes de cada producto.
   const handleRegistrarVenta = async () => {
@@ -739,7 +752,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       const nombreMostrado = clientePrevio?.nombre || nombreCliente || 'Cliente General';
       const op = operacion(
         formVenta.pagado ? 'Venta registrada' : 'Venta fiada registrada',
-        `${nombreMostrado} — $${totalCarrito.toLocaleString()} (${carrito.map(i => `${i.nombre} x${i.cantidad}`).join(', ')})`
+        `${nombreMostrado} — $${totalACobrar.toLocaleString()} (${carrito.map(i => `${i.nombre} x${i.cantidad}`).join(', ')}${aplicaRecargo ? ` + recargo tarjeta $${cobroTarjeta.recargo.toLocaleString()}` : ''})`
       );
 
       // Vincular la venta con el cliente registrado. Si es un fiado de un cliente
@@ -771,6 +784,35 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           creadoEn
         });
       });
+
+      // Recargo por tarjeta: una línea más del pedido. No es ganancia ni costo de inventario:
+      // es lo que se le traslada al cliente para cubrir la tarifa del datáfono.
+      if (aplicaRecargo) {
+        op.crear(doc(col('ventas')), {
+          fecha,
+          cliente,
+          clienteId,
+          producto: `Recargo tarjeta (${datafonoActivo.nombre})`,
+          variante: '',
+          cantidad: 1,
+          total: cobroTarjeta.recargo,
+          costoTotal: 0,
+          ganancia: 0,
+          pagado: true,
+          medioPago: medioPagoFinal,
+          pedidoId,
+          creadoEn,
+          esRecargo: true,
+          tarifa: {
+            datafono: datafonoActivo.nombre,
+            comision: Number(datafonoActivo.comision),
+            iva: Number(datafonoActivo.iva),
+            retefuente: Number(datafonoActivo.retefuente),
+            cobrado: cobroTarjeta.cobrar,
+            descuentos: cobroTarjeta.total
+          }
+        });
+      }
 
       const stockFinal = {};
       Object.entries(lotesPorProducto).forEach(([prodId, lotes]) => {
@@ -1538,7 +1580,16 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       </header>
 
       {pestana === 'perfil' && (
-        <Perfil usuario={usuario} onReverificar={onSesionVencida} negocios={negocios} negocioId={negocioId} cambiarNegocio={cambiarNegocio} />
+        <Perfil
+          usuario={usuario}
+          onReverificar={onSesionVencida}
+          negocios={negocios}
+          negocioId={negocioId}
+          negocio={negocio}
+          cambiarNegocio={cambiarNegocio}
+          esTitularNegocio={miembro?.rol === 'titular'}
+          operacion={operacion}
+        />
       )}
       {pestana === 'socios' && <Socios usuario={usuario} negocioId={negocioId} negocio={negocio} />}
       {pestana === 'historial' && <Historial negocioId={negocioId} incluirAntiguo={negocioId === ID_TAZON} />}
@@ -1668,6 +1719,30 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                       </button>
                     ))}
                   </div>
+                  {formVenta.medioPago === 'Tarjeta' && cobroTarjeta && (
+                    <div className="mt-2 rounded-xl border-[1.5px] border-[#E9E1D2] bg-crema/50 p-3 text-xs space-y-1">
+                      {datafonos.length > 1 && (
+                        <select value={datafonoActivo.id} onChange={(e) => setDatafonoId(e.target.value)} className="campo !py-1.5 !text-xs mb-2" title="Datáfono">
+                          {datafonos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                        </select>
+                      )}
+                      <p className="font-bold">
+                        {datafonoActivo.nombre}: {datafonoActivo.comision} % + IVA {datafonoActivo.iva} % + retefuente {datafonoActivo.retefuente} %
+                      </p>
+                      {aplicaRecargo ? (
+                        <p className="text-gris-calido">
+                          Se suman <b className="text-tinta">{dinero(cobroTarjeta.recargo)}</b> para que te lleguen completos los {dinero(totalCarrito)}
+                          {' '}(comisión {dinero(cobroTarjeta.comision)} · IVA {dinero(cobroTarjeta.iva)} · retefuente {dinero(cobroTarjeta.retefuente)}).
+                        </p>
+                      ) : (
+                        <p className="text-gris-calido">
+                          {formVenta.pagado
+                            ? <>El negocio asume la tarifa: te llegan <b className="text-tinta">{dinero(desglose(totalCarrito, datafonoActivo).llega)}</b>.</>
+                            : 'Al ser fiado, el recargo no se aplica ahora.'}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {formVenta.medioPago === 'Otro' && (
                     <input
                       type="text"
@@ -1682,9 +1757,15 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
               <hr className="separador" />
 
+              {aplicaRecargo && (
+                <div className="text-sm space-y-0.5 mb-2">
+                  <div className="flex justify-between text-gris-calido"><span>Productos</span><span>{dinero(totalCarrito)}</span></div>
+                  <div className="flex justify-between text-gris-calido"><span>Recargo tarjeta ({datafonoActivo.nombre})</span><span>+{dinero(cobroTarjeta.recargo)}</span></div>
+                </div>
+              )}
               <div className="flex items-baseline justify-between mb-3">
-                <span className="kpi-etiqueta text-gris-calido">Total</span>
-                <span className="kpi-valor text-3xl">{dinero(totalCarrito)}</span>
+                <span className="kpi-etiqueta text-gris-calido">{aplicaRecargo ? 'Total a cobrar' : 'Total'}</span>
+                <span className="kpi-valor text-3xl">{dinero(totalACobrar)}</span>
               </div>
               <button
                 type="button"
@@ -1694,7 +1775,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               >
                 {guardandoVenta
                   ? 'Registrando...'
-                  : formVenta.pagado ? <><CheckCircle size={18} /> Cobrar {dinero(totalCarrito)}</> : <><HandCoins size={18} /> Registrar fiado</>}
+                  : formVenta.pagado ? <><CheckCircle size={18} /> Cobrar {dinero(totalACobrar)}</> : <><HandCoins size={18} /> Registrar fiado</>}
               </button>
           </>
         );
@@ -1818,7 +1899,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                     <>
                       Pedido
                       <span className="pastilla pastilla-pendiente !border-sol">{unidadesCarrito} un.</span>
-                      <span className="font-extrabold">{dinero(totalCarrito)}</span>
+                      <span className="font-extrabold">{dinero(totalACobrar)}</span>
                     </>
                   )}
               </button>

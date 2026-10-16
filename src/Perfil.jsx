@@ -5,6 +5,7 @@ import { UserCircle, LogOut, Save, Mail, KeyRound, Smartphone, Send, Trash2, Eye
 import { auth, db } from './firebase';
 import { llamarServidor, cerrarSesion, idDispositivoActual, borrarDispositivo } from './servidor';
 import { FormNuevoNegocio, colorNegocio } from './negociosComun';
+import { ConfigDatafono } from './Datafono';
 
 const claseInput = 'w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none';
 const claseBoton = 'flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow disabled:opacity-50';
@@ -25,7 +26,7 @@ const formatoFecha = (valor) => {
   return fecha ? fecha.toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 };
 
-export default function Perfil({ usuario, onReverificar, negocios = [], negocioId, cambiarNegocio }) {
+export default function Perfil({ usuario, onReverificar, negocios = [], negocioId, negocio, cambiarNegocio, esTitularNegocio, operacion }) {
   const [perfil, setPerfil] = useState(null);
   const [dispositivos, setDispositivos] = useState([]);
   const [idActual, setIdActual] = useState(null);
@@ -214,6 +215,9 @@ export default function Perfil({ usuario, onReverificar, negocios = [], negocioI
           </div>
         </details>
       </div>
+
+      {/* Datáfono y tarifas de tarjeta (del negocio abierto) */}
+      <ConfigDatafono negocioId={negocioId} negocio={negocio} esTitular={esTitularNegocio} operacion={operacion} />
 
       {/* Nombre de usuario */}
       <div className="panel p-6">
