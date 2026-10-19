@@ -14,6 +14,7 @@ import Materiales from './Materiales';
 import ProductosFabricados from './ProductosFabricados';
 import SelectorFabricado from './SelectorFabricado';
 import { CompraMateriales, RegistrarDano, PerdidasFinanzas } from './ComprasDanos';
+import GananciaProductos from './GananciaProductos';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -2493,6 +2494,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           {(negocio?.fabricacion || perdidas.length > 0) && (
             <PerdidasFinanzas perdidas={perdidas} puedeBorrar={puede('inventario')} operacion={operacion} docN={docN} />
           )}
+
+          <GananciaProductos ventas={ventas} perdidas={perdidas} />
 
           {/* Ajustar efectivo base no registrado */}
           <Plegable
