@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { UserCircle, LogOut, Save, Mail, KeyRound, Smartphone, Send, Trash2, Eye, EyeOff, Store, PlusCircle } from 'lucide-react';
+import { UserCircle, LogOut, Save, Mail, KeyRound, Smartphone, Send, Trash2, Eye, EyeOff, Store, PlusCircle, Compass } from 'lucide-react';
 import { auth, db } from './firebase';
 import { llamarServidor, cerrarSesion, idDispositivoActual, borrarDispositivo } from './servidor';
 import { FormNuevoNegocio, colorNegocio } from './negociosComun';
@@ -26,7 +26,7 @@ const formatoFecha = (valor) => {
   return fecha ? fecha.toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 };
 
-export default function Perfil({ usuario, onReverificar, negocios = [], negocioId, negocio, cambiarNegocio, esTitularNegocio, operacion }) {
+export default function Perfil({ usuario, onReverificar, negocios = [], negocioId, negocio, cambiarNegocio, esTitularNegocio, operacion, onTutorial }) {
   const [perfil, setPerfil] = useState(null);
   const [dispositivos, setDispositivos] = useState([]);
   const [idActual, setIdActual] = useState(null);
@@ -174,12 +174,19 @@ export default function Perfil({ usuario, onReverificar, negocios = [], negocioI
             </span>
           </div>
         </div>
-        <button
-          onClick={cerrarSesion}
-          className="btn btn-oscuro"
-        >
-          <LogOut size={16} /> Cerrar sesión
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {onTutorial && (
+            <button onClick={onTutorial} className="btn btn-claro" title="Guía de uso paso a paso">
+              <Compass size={16} /> Tutorial
+            </button>
+          )}
+          <button
+            onClick={cerrarSesion}
+            className="btn btn-oscuro"
+          >
+            <LogOut size={16} /> Cerrar sesión
+          </button>
+        </div>
       </div>
 
       {/* Mis negocios */}
@@ -187,7 +194,10 @@ export default function Perfil({ usuario, onReverificar, negocios = [], negocioI
         <h3 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
           <Store size={18} className="text-indigo-600" /> Mis negocios
         </h3>
-        <p className="text-xs text-slate-500 mb-4">Cada negocio tiene sus propias ventas, inventario, socios y finanzas. No se mezclan.</p>
+        <p className="text-xs text-slate-500 mb-4">
+          Cada negocio tiene sus propias ventas, inventario, socios y finanzas. No se mezclan.
+          {onTutorial && <> <button onClick={onTutorial} className="enlace">Ver el tutorial de la app</button></>}
+        </p>
         <div className="space-y-2 mb-5">
           {negocios.map(n => (
             <div key={n.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border-[1.5px] ${n.id === negocioId ? 'border-tinta bg-crema/60' : 'border-linea'}`}>

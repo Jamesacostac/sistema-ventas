@@ -17,6 +17,7 @@ import { CompraMateriales, RegistrarDano, PerdidasFinanzas } from './ComprasDano
 import GananciaProductos from './GananciaProductos';
 import ConfigMarca from './ConfigMarca';
 import { aplicarMarca } from './marca';
+import Recorrido from './Recorrido';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -30,7 +31,7 @@ import {
   CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
   HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
-  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X, Settings, PlusCircle, Layers, Hammer
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X, Settings, PlusCircle, Layers, Hammer, Compass
 } from 'lucide-react';
 
 // Fecha AAAA-MM-DD con la hora de Colombia. Antes se usaba la hora UTC y lo que se
@@ -621,6 +622,9 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   // ==================== CARRITO DE COMPRAS ====================
   const [carrito, setCarrito] = useState([]);
   const [ventanaNegocio, setVentanaNegocio] = useState(false);
+  // Tutorial (recorrido guiado): sale solo la primera vez en cada dispositivo y se repite desde el menú
+  const [recorridoAbierto, setRecorridoAbierto] = useState(false);
+  const claveRecorrido = `recorrido-v1-${usuario?.uid}`;
   // Tarifas del datáfono del negocio (Mi perfil → Datáfono y tarifas de tarjeta)
   const configDatafono = useConfigDatafono(negocioId);
   const [datafonoId, setDatafonoId] = useState(null);
@@ -1490,6 +1494,39 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
   const handleCerrarSesion = cerrarSesion;
 
+  // La primera vez que la persona entra (en este dispositivo) se abre el tutorial
+  useEffect(() => {
+    if (cargando || errorAcceso) return;
+    try { if (!localStorage.getItem(claveRecorrido)) setRecorridoAbierto(true); } catch { /* sin almacenamiento: no se muestra solo */ }
+  }, [cargando]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const abrirTutorial = () => { setPestana('ventas'); setPedidoAbierto(false); setRecorridoAbierto(true); };
+  const terminarTutorial = () => {
+    try { localStorage.setItem(claveRecorrido, new Date().toISOString()); } catch { /* sin almacenamiento */ }
+    setRecorridoAbierto(false);
+    setPestana('ventas');
+  };
+  const nombrePersona = perfil?.nombre?.split(' ')[0] || usuario?.displayName?.split(' ')[0] || '';
+  const pasosTutorial = [
+    { titulo: `¡Hola${nombrePersona ? ', ' + nombrePersona : ''}! 👋`, texto: `Te muestro en un minuto cómo funciona la app de ${negocio?.nombre || 'tu negocio'}. Puedes saltarlo y verlo cuando quieras desde tu menú → Tutorial.`, antes: () => { setPestana('ventas'); setPedidoAbierto(false); } },
+    { objetivo: 'negocio', titulo: 'Tus negocios', texto: 'Toca el nombre para cambiar de negocio. Cada uno lleva sus ventas, inventario, socios y finanzas por separado.' },
+    { objetivo: 'pestanas', titulo: 'El menú principal', texto: 'Desde aquí vas a Ventas, Clientes, Inventario, Finanzas y Equipo.' },
+    { objetivo: 'indicadores', titulo: 'Cómo va el día', texto: 'Ventas pagadas, lo que hay que reponer, el ahorro y el pago por socio. Se actualizan con cada venta.' },
+    { objetivo: 'productos', titulo: 'Vender', texto: `Toca un producto para agregarlo al pedido.${negocio?.fabricacion ? ' Los que dicen “Se arma” se hacen al vender: eliges talla u opciones y se descuentan los materiales.' : ''} Puedes buscar por nombre o filtrar por categoría.` },
+    { objetivo: 'escanear', titulo: 'Escanear códigos', texto: 'Con la cámara del celular o un lector de códigos de barras agregas productos al pedido al instante.' },
+    { objetivo: 'pedido', titulo: 'El pedido', texto: 'Aquí ves lo que lleva el cliente. Elige si paga o queda fiado, el medio de pago y pulsa Cobrar.' },
+    { objetivo: 'historial', titulo: 'Historial de ventas', texto: 'Las ventas del día. Puedes buscarlas, marcar un fiado como pagado o corregir un error.' },
+    { objetivo: 'tab-clientes', titulo: 'Clientes y fiados', texto: 'Quién debe y cuánto. Desde aquí cobras los fiados y registras a tus clientes.' },
+    { objetivo: 'tab-inventario', titulo: 'Inventario', texto: negocio?.fabricacion
+      ? 'Productos, categorías y etiquetas. En Fabricación están los materiales, las recetas con su costo y ganancia, las compras y los daños.'
+      : 'Productos con sus lotes y vencimientos, categorías y etiquetas con código de barras.' },
+    { objetivo: 'tab-finanzas', titulo: 'Finanzas', texto: 'Efectivo en caja, gastos, ganancia por producto y pérdidas. Todo lo de la plata está aquí.' },
+    { objetivo: 'tab-equipo', titulo: 'Equipo', texto: 'Agrega socios con su rango, revisa el historial de cambios y configura el negocio y su marca.' },
+    { objetivo: 'telegram', titulo: 'Avisos por Telegram', texto: 'Envía a los socios alertas de stock e informes de cierre.' },
+    { objetivo: 'usuario', titulo: 'Tu cuenta', texto: 'Tu perfil, tus negocios y cerrar sesión. Aquí está el Tutorial para repetir esta guía.' },
+    { titulo: '¡Listo para empezar! 🎉', texto: 'Si tienes dudas, abre el Tutorial desde tu menú o desde Mi perfil cuando quieras.' }
+  ];
+
   if (cargando) {
     return (
       <div className="flex flex-col justify-center items-center gap-4 min-h-screen marca-cabecera border-0 shadow-none text-tinta font-sans">
@@ -1542,6 +1579,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               <MenuDesplegable
                 etiqueta={<span className="truncate">{negocio?.nombre}</span>}
                 claseBoton="flex items-center gap-1.5 max-w-full marca-titular text-base sm:text-xl md:text-2xl text-tinta leading-tight hover:opacity-80 no-print"
+                recorrido="negocio"
               >
                 <MenuTitulo>Tus negocios</MenuTitulo>
                 {negocios.map(n => (
@@ -1572,6 +1610,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               icono={<Send size={16} />}
               alinear="derecha"
               claseBoton="btn btn-claro btn-sm"
+              recorrido="telegram"
             >
               <MenuTitulo>Enviar a los socios</MenuTitulo>
               <MenuItem icono={<BellRing size={16} />} onClick={handleEnviarAlertaStockTelegram} detalle="Productos agotados o por agotarse">
@@ -1587,10 +1626,14 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               icono={<UserCircle size={16} />}
               alinear="derecha"
               claseBoton="btn btn-oscuro btn-sm"
+              recorrido="usuario"
             >
               <MenuTitulo>{usuario?.email}</MenuTitulo>
               <MenuItem icono={<UserCircle size={16} />} onClick={() => setPestana('perfil')} activo={pestana === 'perfil'} detalle="Nombre, correo, contraseña y dispositivos">
                 Mi perfil
+              </MenuItem>
+              <MenuItem icono={<Compass size={16} />} onClick={abrirTutorial} detalle="Guía de uso paso a paso">
+                Tutorial
               </MenuItem>
               <MenuSeparador />
               <MenuTitulo>Mis negocios</MenuTitulo>
@@ -1617,11 +1660,11 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         </div>
 
         {/* Navegación principal */}
-        <nav className="no-print mx-2 sm:mx-3 mb-2 sm:mb-3 flex flex-nowrap items-center justify-start md:justify-center gap-1 overflow-x-auto sin-scrollbar bg-papel p-1.5 rounded-2xl border-2 border-tinta barra-pestanas">
+        <nav className="no-print mx-2 sm:mx-3 mb-2 sm:mb-3 flex flex-nowrap items-center justify-start md:justify-center gap-1 overflow-x-auto sin-scrollbar bg-papel p-1.5 rounded-2xl border-2 border-tinta barra-pestanas" data-recorrido="pestanas">
           <button onClick={() => setPestana('ventas')} className={`pestana ${pestana === 'ventas' ? 'pestana-activa' : ''}`}>
             <ShoppingCart size={16} /> Ventas
           </button>
-          <button onClick={() => setPestana('clientes')} className={`pestana ${pestana === 'clientes' ? 'pestana-activa' : ''}`}>
+          <button onClick={() => setPestana('clientes')} className={`pestana ${pestana === 'clientes' ? 'pestana-activa' : ''}`} data-recorrido="tab-clientes">
             <Users size={16} /> Clientes
             {clientesConDeuda > 0 && (
               <span className="pastilla pastilla-peligro !px-1.5 !py-0 !text-[10px]" title="Clientes con deuda">{clientesConDeuda}</span>
@@ -1630,6 +1673,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           <MenuDesplegable
             etiqueta="Inventario"
             icono={<Package size={16} />}
+            recorrido="tab-inventario"
             activo={['inventario', 'categorias', 'catalogo', 'etiquetas', 'materiales', 'fabricados'].includes(pestana)}
           >
             <MenuItem icono={<Boxes size={16} />} onClick={() => setPestana('inventario')} activo={pestana === 'inventario'} detalle="Stock por lotes y vencimientos">
@@ -1658,12 +1702,13 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               Carta
             </MenuItem>
           </MenuDesplegable>
-          <button onClick={() => setPestana('estado_cuenta')} className={`pestana ${pestana === 'estado_cuenta' ? 'pestana-activa' : ''}`}>
+          <button onClick={() => setPestana('estado_cuenta')} className={`pestana ${pestana === 'estado_cuenta' ? 'pestana-activa' : ''}`} data-recorrido="tab-finanzas">
             <Wallet size={16} /> Finanzas
           </button>
           <MenuDesplegable
             etiqueta="Equipo"
             icono={<Handshake size={16} />}
+            recorrido="tab-equipo"
             activo={['socios', 'historial', 'configuracion'].includes(pestana)}
             alinear="derecha"
           >
@@ -1691,6 +1736,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           cambiarNegocio={cambiarNegocio}
           esTitularNegocio={miembro?.rol === 'titular'}
           operacion={operacion}
+          onTutorial={abrirTutorial}
         />
       )}
       {pestana === 'socios' && <Socios usuario={usuario} negocioId={negocioId} negocio={negocio} />}
@@ -1701,6 +1747,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           <ConfigMarca negocioId={negocioId} negocio={negocio} marca={marca} esTitular={miembro?.rol === 'titular'} operacion={operacion} />
         </div>
       )}
+      {recorridoAbierto && <Recorrido pasos={pasosTutorial} onTerminar={terminarTutorial} />}
       {eligiendoFabricado && (
         <SelectorFabricado
           producto={eligiendoFabricado}
@@ -1932,7 +1979,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
         return (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 print:gap-2 print:mb-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 print:gap-2 print:mb-4" data-recorrido="indicadores">
             <Kpi color="sol" icono={<Banknote size={18} />} etiqueta="Ventas pagadas" valor={dinero(totalIngresosDia)} detalle={`${ventasPagadas.length} venta(s)`} />
             <Kpi color="turquesa" icono={<RefreshCw size={18} />} etiqueta="Fondo reposición" valor={dinero(totalReposicionDia)} detalle="Costo de lo vendido" />
             <Kpi color="verde" icono={<PiggyBank size={18} />} etiqueta="Ahorro mejoras" valor={dinero(fondoAhorro)} detalle={`${porcentajeAhorro} % de la ganancia`} />
@@ -1955,7 +2002,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
           <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_400px] gap-6 mb-6 items-start no-print">
             {/* ---------- Catálogo ---------- */}
-            <section className="panel p-4 md:p-5">
+            <section className="panel p-4 md:p-5" data-recorrido="productos">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
                   <Store size={18} /> Productos
@@ -1979,7 +2026,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                       className="campo pl-9"
                     />
                   </div>
-                  <button onClick={() => setEscaner('venta')} disabled={!puedeVender} className="btn btn-oscuro shrink-0" title="Escanear con la cámara">
+                  <button onClick={() => setEscaner('venta')} disabled={!puedeVender} className="btn btn-oscuro shrink-0" title="Escanear con la cámara" data-recorrido="escanear">
                     <ScanBarcode size={16} /> <span className="hidden md:inline">Escanear</span>
                   </button>
                 </div>
@@ -2060,7 +2107,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
             {/* ---------- Pedido actual ---------- */}
             {esPC && (
-              <aside className="panel p-4 md:p-5 sticky top-4">
+              <aside className="panel p-4 md:p-5 sticky top-4" data-recorrido="pedido">
                 {contenidoPedido}
               </aside>
             )}
@@ -2072,6 +2119,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                 onClick={() => setPedidoAbierto(true)}
                 className="fixed z-30 bottom-4 right-4 left-4 sm:left-auto btn btn-oscuro !py-3 !px-5 !text-base !shadow-[4px_4px_0_var(--color-sol)] hover:!shadow-[5px_5px_0_var(--color-sol)] no-print"
                 aria-label="Abrir el pedido"
+                data-recorrido="pedido"
               >
                 <ShoppingCart size={18} />
                 {carrito.length === 0
@@ -2106,7 +2154,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           )}
 
           {/* ---------- Historial ---------- */}
-          <div className="panel overflow-hidden mb-6">
+          <div className="panel overflow-hidden mb-6" data-recorrido="historial">
             <div className="p-4 md:p-5 border-b-[1.5px] border-linea flex flex-wrap gap-3 justify-between items-center">
               <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><ClipboardList size={18} /> Historial de ventas</h2>
               <div className="flex flex-wrap items-center gap-2 no-print">

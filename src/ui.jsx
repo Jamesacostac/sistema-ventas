@@ -10,7 +10,7 @@ import { ChevronDown } from 'lucide-react';
  *     <MenuSeparador />
  *   </MenuDesplegable>
  */
-export function MenuDesplegable({ etiqueta, icono, activo = false, alinear = 'izquierda', claseBoton, children, insignia }) {
+export function MenuDesplegable({ etiqueta, icono, activo = false, alinear = 'izquierda', claseBoton, children, insignia, recorrido }) {
   const [abierto, setAbierto] = useState(false);
   const [posicion, setPosicion] = useState(null);
   const ref = useRef(null);
@@ -47,7 +47,7 @@ export function MenuDesplegable({ etiqueta, icono, activo = false, alinear = 'iz
   }, [abierto]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" data-recorrido={recorrido}>
       <button
         ref={botonRef}
         type="button"
