@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { doc } from 'firebase/firestore';
-import { Banknote, Save, PlusCircle, MinusCircle, Calculator } from 'lucide-react';
+import { Banknote, Save, PlusCircle, MinusCircle, Calculator, Trash2 } from 'lucide-react';
 import { Plegable } from './ui';
 
 /**
@@ -15,8 +15,11 @@ const dinero = (n) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(Number(n) || 0)
 const MODOS = {
   entrada: { texto: 'Agregar dinero', icono: PlusCircle, ayuda: 'Se suma a lo que ya hay (base para cambio, aporte de un socio...).', placeholder: 'Cuánto entra' },
   salida: { texto: 'Sacar dinero', icono: MinusCircle, ayuda: 'Se resta de la caja (retiro, pago en efectivo que no es gasto...).', placeholder: 'Cuánto sale' },
-  conteo: { texto: 'Contar la caja', icono: Calculator, ayuda: 'Escribe cuánto contaste en físico; se ajusta la diferencia.', placeholder: 'Total contado' }
+  conteo: { texto: 'Contar la caja', icono: Calculator, ayuda: 'Escribe cuánto contaste en físico; se ajusta la diferencia.', placeholder: 'Total contado' },
+  vaciado: { texto: 'Caja vaciada', icono: Trash2 }
 };
+
+const PALABRA_CONFIRMAR = 'VACIAR';
 
 export default function CajaBase({ cajaInicial, cajaDocId, movimientos = [], ventasEfectivo, puedeEditar, operacion, col, docN, nombre = '', AvisoSinPermiso }) {
   const [modo, setModo] = useState('entrada');
@@ -24,6 +27,10 @@ export default function CajaBase({ cajaInicial, cajaDocId, movimientos = [], ven
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [estado, setEstado] = useState(null);
+  // Vaciar la caja: segunda confirmación escribiendo VACIAR
+  const [vaciando, setVaciando] = useState(false);
+  const [confirmacion, setConfirmacion] = useState('');
+  const [borrarHistorial, setBorrarHistorial] = useState(false);
 
   const valor = Number(String(monto).replace(/\./g, '').replace(',', '.'));
   const efectivoActual = cajaInicial + ventasEfectivo;
@@ -59,6 +66,30 @@ export default function CajaBase({ cajaInicial, cajaDocId, movimientos = [], ven
       setEstado({ tipo: 'ok', texto: `Listo. Efectivo en caja: ${dinero(nuevaBase + ventasEfectivo)}.` });
     } catch (err) {
       setEstado({ tipo: 'error', texto: 'No se pudo guardar: ' + err.message });
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  // Deja el efectivo en caja en $0 (la base compensa las ventas en efectivo) y, si se pide, borra el historial
+  const vaciar = async () => {
+    if (!puedeEditar || confirmacion.trim().toUpperCase() !== PALABRA_CONFIRMAR) return;
+    setGuardando(true);
+    setEstado(null);
+    try {
+      const nueva = -ventasEfectivo;
+      const movimiento = { fecha: new Date().toISOString(), tipo: 'vaciado', monto: nueva - cajaInicial, base: nueva, nota: borrarHistorial ? 'historial borrado' : '', por: nombre };
+      const op = operacion('Caja vaciada', `Salen ${dinero(efectivoActual)} · la caja queda en $0${borrarHistorial ? ' · historial de movimientos borrado' : ''}`);
+      const datos = { monto: nueva, fechaActualizacion: movimiento.fecha, movimientos: borrarHistorial ? [movimiento] : [movimiento, ...movimientos].slice(0, 100) };
+      if (cajaDocId) op.actualizar(docN('caja_base', cajaDocId), datos, { monto: cajaInicial, movimientos });
+      else op.crear(doc(col('caja_base')), datos);
+      await op.guardar();
+      setVaciando(false);
+      setConfirmacion('');
+      setBorrarHistorial(false);
+      setEstado({ tipo: 'ok', texto: 'Caja vaciada: el efectivo en caja quedó en $0.' });
+    } catch (err) {
+      setEstado({ tipo: 'error', texto: 'No se pudo vaciar: ' + err.message });
     } finally {
       setGuardando(false);
     }
@@ -123,6 +154,36 @@ export default function CajaBase({ cajaInicial, cajaDocId, movimientos = [], ven
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {puedeEditar && (
+        <div className="mt-5 pt-4 border-t-[1.5px] border-dashed border-linea">
+          {!vaciando ? (
+            <button type="button" onClick={() => { setVaciando(true); setEstado(null); }} disabled={efectivoActual === 0 && movimientos.length === 0} className="btn btn-claro btn-sm">
+              <Trash2 size={14} /> Vaciar caja
+            </button>
+          ) : (
+            <div className="rounded-xl border-[1.5px] border-coral bg-rose-50 p-4 space-y-3">
+              <p className="text-sm text-tinta">
+                <b>¿Seguro que quieres vaciar la caja?</b> Salen <b>{dinero(efectivoActual)}</b> y el efectivo en caja queda en <b>$0</b>.
+                {ventasEfectivo !== 0 && <> Las ventas no se borran: la base queda en {dinero(-ventasEfectivo)} para compensarlas.</>}
+              </p>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={borrarHistorial} onChange={(e) => setBorrarHistorial(e.target.checked)} className="accent-tinta" />
+                Borrar también el historial de movimientos (por ejemplo, si eran pruebas)
+              </label>
+              <div>
+                <label className="etiqueta">Para confirmar, escribe {PALABRA_CONFIRMAR}</label>
+                <input value={confirmacion} onChange={(e) => setConfirmacion(e.target.value)} className="campo sm:!w-60" placeholder={PALABRA_CONFIRMAR} autoComplete="off" />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={vaciar} disabled={guardando || confirmacion.trim().toUpperCase() !== PALABRA_CONFIRMAR} className="btn btn-peligro btn-sm">
+                  <Trash2 size={14} /> {guardando ? 'Vaciando...' : 'Sí, vaciar la caja'}
+                </button>
+                <button type="button" onClick={() => { setVaciando(false); setConfirmacion(''); }} className="btn btn-claro btn-sm">Cancelar</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Plegable>
