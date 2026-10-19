@@ -12,7 +12,7 @@ import { UNIDADES, compararNombres } from './fabricacion';
 const dinero = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO');
 const numero = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('es-CO');
 
-const FORM_VACIO = { nombre: '', grupo: '', unidad: 'unidad', costo: '', stock: '', minimo: '' };
+const FORM_VACIO = { nombre: '', grupo: '', unidad: 'unidad', costo: '', costoPedido: '', stock: '', minimo: '' };
 
 export default function Materiales({ materiales, productos, puedeEditar, operacion, col, docN }) {
   const [form, setForm] = useState(FORM_VACIO);
@@ -47,7 +47,7 @@ export default function Materiales({ materiales, productos, puedeEditar, operaci
 
   const editar = (m) => {
     setEditandoId(m.id);
-    setForm({ nombre: m.nombre, grupo: m.grupo || '', unidad: m.unidad || 'unidad', costo: m.costo ?? '', stock: m.stock ?? '', minimo: m.minimo ?? '' });
+    setForm({ nombre: m.nombre, grupo: m.grupo || '', unidad: m.unidad || 'unidad', costo: m.costo ?? '', costoPedido: Number(m.costoPedido) > 0 ? m.costoPedido : '', stock: m.stock ?? '', minimo: m.minimo ?? '' });
     setEstado(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -66,6 +66,7 @@ export default function Materiales({ materiales, productos, puedeEditar, operaci
       grupo: form.grupo.trim(),
       unidad: form.unidad,
       costo: Math.max(0, Number(String(form.costo).replace(',', '.')) || 0),
+      costoPedido: Math.max(0, Number(String(form.costoPedido).replace(',', '.')) || 0),
       stock: Number(String(form.stock).replace(',', '.')) || 0,
       minimo: Math.max(0, Number(String(form.minimo).replace(',', '.')) || 0)
     };
@@ -76,6 +77,7 @@ export default function Materiales({ materiales, productos, puedeEditar, operaci
         const antes = materiales.find(m => m.id === editandoId);
         const cambios = [
           antes.costo !== datos.costo && `costo ${dinero(antes.costo)} → ${dinero(datos.costo)}`,
+          (Number(antes.costoPedido) || 0) !== datos.costoPedido && `costo por pedido ${dinero(antes.costoPedido)} → ${dinero(datos.costoPedido)}`,
           antes.stock !== datos.stock && `stock ${numero(antes.stock)} → ${numero(datos.stock)}`,
           antes.nombre !== datos.nombre && `nombre ${antes.nombre} → ${datos.nombre}`
         ].filter(Boolean).join(', ');
@@ -156,7 +158,7 @@ export default function Materiales({ materiales, productos, puedeEditar, operaci
                 <datalist id="grupos-materiales">{grupos.map(g => <option key={g} value={g} />)}</datalist>
               </div>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <div>
                 <label className="etiqueta">Se cuenta por</label>
                 <select value={form.unidad} onChange={(e) => setForm({ ...form, unidad: e.target.value })} className="campo">
@@ -166,6 +168,10 @@ export default function Materiales({ materiales, productos, puedeEditar, operaci
               <div>
                 <label className="etiqueta">Costo por {form.unidad}</label>
                 <input type="number" min="0" step="any" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })} className="campo" placeholder="0" />
+              </div>
+              <div>
+                <label className="etiqueta" title="Si a veces se compra cuando llega el pedido (al detal) y sale más caro">Costo por pedido <span className="font-normal text-gris-calido">(opcional)</span></label>
+                <input type="number" min="0" step="any" value={form.costoPedido} onChange={(e) => setForm({ ...form, costoPedido: e.target.value })} className="campo" placeholder="Igual" />
               </div>
               <div>
                 <label className="etiqueta">Hay en stock</label>
@@ -217,7 +223,7 @@ export default function Materiales({ materiales, productos, puedeEditar, operaci
                     return (
                       <tr key={m.id}>
                         <td className="p-3 font-semibold">{m.nombre}<span className="block text-[11px] font-normal text-gris-calido">por {m.unidad || 'unidad'}</span></td>
-                        <td className={`p-3 text-right whitespace-nowrap ${Number(m.costo) > 0 ? '' : 'text-gris-calido italic'}`}>{Number(m.costo) > 0 ? dinero(m.costo) : 'sin costo'}</td>
+                        <td className={`p-3 text-right whitespace-nowrap ${Number(m.costo) > 0 ? '' : 'text-gris-calido italic'}`}>{Number(m.costo) > 0 ? dinero(m.costo) : 'sin costo'}{Number(m.costoPedido) > 0 && <span className="block text-[11px] text-gris-calido not-italic">por pedido {dinero(m.costoPedido)}</span>}</td>
                         <td className="p-3 text-right whitespace-nowrap">
                           <span className={`pastilla ${bajo ? 'pastilla-peligro' : (Number(m.stock) || 0) > 0 ? 'pastilla-neutra' : 'pastilla-pendiente'}`}>
                             {bajo && <AlertTriangle size={11} />} {numero(m.stock)}

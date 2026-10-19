@@ -115,10 +115,16 @@ function TablaCostos({ producto, materialesPorId }) {
   const filas = variantesDe(producto).map(eleccion => {
     const receta = recetaDe(producto, eleccion);
     const costo = costoReceta(receta, materialesPorId);
+    const costoPedido = costoReceta(receta, materialesPorId, true);
     const precio = precioUnitario(producto, eleccion);
-    return { nombre: nombreVariante(eleccion) || 'Único', costo, precio, g: gananciaDe(precio, costo), sugerido: precioSugerido(costo, ganancia), faltan: faltantesReceta(receta, materialesPorId) };
+    return {
+      nombre: nombreVariante(eleccion) || 'Único', costo, costoPedido, precio,
+      g: gananciaDe(precio, costo), gPedido: gananciaDe(precio, costoPedido),
+      sugerido: precioSugerido(costo, ganancia), faltan: faltantesReceta(receta, materialesPorId)
+    };
   });
   const masBarata = filas.reduce((a, b) => (b.costo < a.costo ? b : a), filas[0]);
+  const hayPedido = filas.some(f => f.costoPedido !== f.costo);
 
   return (
     <div className="space-y-3">
@@ -142,10 +148,18 @@ function TablaCostos({ producto, materialesPorId }) {
                     {f.nombre}
                     {f.faltan.length > 0 && <span className="block text-[11px] font-normal text-[#B23A50]">Falta: {f.faltan.join(', ')}</span>}
                   </td>
-                  <td className="p-2 text-right whitespace-nowrap">{dinero(f.costo)}</td>
+                  <td className="p-2 text-right whitespace-nowrap">
+                    {dinero(f.costo)}
+                    {f.costoPedido !== f.costo && <span className="block text-[11px] text-gris-calido">por pedido {dinero(f.costoPedido)}</span>}
+                  </td>
                   <td className="p-2 text-right whitespace-nowrap">{dinero(f.precio)}</td>
                   <td className={`p-2 text-right whitespace-nowrap ${bajo ? 'text-[#B23A50] font-semibold' : 'text-emerald-700'}`}>
                     {dinero(f.g.pesos)} <span className="text-[11px]">({pct(f.g.porcentaje)})</span>
+                    {f.costoPedido !== f.costo && (
+                      <span className={`block text-[11px] ${f.gPedido.porcentaje !== null && f.gPedido.porcentaje < ganancia ? 'text-[#B23A50]' : 'text-gris-calido'}`}>
+                        por pedido {dinero(f.gPedido.pesos)} ({pct(f.gPedido.porcentaje)})
+                      </span>
+                    )}
                   </td>
                   <td className="p-2 text-right whitespace-nowrap">{f.faltan.length ? '—' : dinero(f.sugerido)}</td>
                 </tr>
@@ -154,6 +168,9 @@ function TablaCostos({ producto, materialesPorId }) {
           </tbody>
         </table>
       </div>
+      {hayPedido && (
+        <p className="text-xs text-gris-calido">Arriba: comprando la prenda o pieza para tener en stock. Debajo: comprándola cuando llega el pedido.</p>
+      )}
       {(producto.preciosCantidad || []).length > 0 && masBarata && (
         <p className="text-xs text-gris-calido">
           Por cantidad ({masBarata.nombre}):{' '}
@@ -249,7 +266,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
   const cargarCatalogo = async () => {
     if (!puedeEditar) return;
     const { materiales: mats, productos: prods } = CATALOGO_NOGURI;
-    if (!confirm(`Se crearán los materiales y ${prods.length} productos del catálogo de Noguri (los que ya existan con el mismo nombre se dejan como están). Después completas los costos. ¿Continuar?`)) return;
+    if (!confirm(`Se crearán ${mats.length} materiales y ${prods.length} productos del catálogo de Noguri, con los costos y el stock de la hoja de inventario (los que ya existan con el mismo nombre se dejan como están). ¿Continuar?`)) return;
     setGuardando(true);
     setEstado(null);
     try {
@@ -260,7 +277,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
         const existente = materiales.find(x => x.nombre.toLowerCase() === m.nombre.toLowerCase());
         if (existente) { idPorClave[m.clave] = existente.id; return; }
         const { clave, ...datos } = m;
-        idPorClave[clave] = op.crear(doc(col('materiales')), { ...datos, costo: 0, stock: 0, minimo: 0 }).id;
+        idPorClave[clave] = op.crear(doc(col('materiales')), { ...datos, minimo: 0 }).id;
         nuevosMateriales++;
       });
       const receta = (lineas) => (lineas || []).map(l => ({ materialId: idPorClave[l.material], cantidad: l.cantidad }));
@@ -290,7 +307,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
         setEstado({ tipo: 'ok', texto: 'El catálogo ya estaba cargado.' });
       } else {
         await op.guardar();
-        setEstado({ tipo: 'ok', texto: `Listo: ${nuevosProductos} producto(s) y ${nuevosMateriales} material(es). Ahora pon el costo de cada material en Materiales.` });
+        setEstado({ tipo: 'ok', texto: `Listo: ${nuevosProductos} producto(s) y ${nuevosMateriales} material(es), con los costos y el stock de la hoja de inventario. Revisa en Materiales lo que haya cambiado.` });
       }
     } catch (err) {
       setEstado({ tipo: 'error', texto: 'No se pudo cargar el catálogo: ' + err.message });
@@ -455,11 +472,15 @@ export default function ProductosFabricados({ productos, materiales, categorias,
           {fabricados.map(p => {
             const variantes = variantesDe(p).map(e => {
               const receta = recetaDe(p, e);
-              return { costo: costoReceta(receta, materialesPorId), precio: precioUnitario(p, e), faltan: faltantesReceta(receta, materialesPorId).length };
+              return { costo: costoReceta(receta, materialesPorId), costoPedido: costoReceta(receta, materialesPorId, true), precio: precioUnitario(p, e), faltan: faltantesReceta(receta, materialesPorId).length };
             });
             const costos = variantes.map(v => v.costo);
             const precios = variantes.map(v => v.precio);
-            const peor = Math.min(...variantes.map(v => gananciaDe(v.precio, v.costo).porcentaje ?? Infinity));
+            // Rango de ganancia: la peor (comprando por pedido) y la mejor (con lo que hay en stock)
+            const porcentajes = (campo) => variantes.map(v => gananciaDe(v.precio, v[campo]).porcentaje).filter(x => x !== null);
+            const peor = Math.min(...porcentajes('costoPedido'), ...porcentajes('costo'));
+            const mejor = Math.max(...porcentajes('costo'));
+            const peorEnStock = Math.min(...porcentajes('costo'));
             const faltan = variantes.some(v => v.faltan);
             const objetivo = Number(p.ganancia ?? GANANCIA_POR_DEFECTO);
             const rango = (lista) => (Math.min(...lista) === Math.max(...lista) ? dinero(lista[0]) : `${dinero(Math.min(...lista))} – ${dinero(Math.max(...lista))}`);
@@ -482,7 +503,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
                     <span className="pastilla pastilla-neutra">Costo {rango(costos)}</span>
                     {faltan
                       ? <span className="pastilla pastilla-pendiente"><AlertTriangle size={11} /> Faltan datos</span>
-                      : <span className={`pastilla ${peor < objetivo ? 'pastilla-peligro' : 'pastilla-ok'}`}>Ganancia {pct(peor === Infinity ? null : peor)}{variantes.length > 1 ? ' o más' : ''}</span>}
+                      : <span className={`pastilla ${peorEnStock < objetivo ? 'pastilla-peligro' : 'pastilla-ok'}`}>Ganancia {Math.round(peor) === Math.round(mejor) ? pct(peor) : `${Math.round(peor)} – ${pct(mejor)}`}</span>}
                   </div>
                   <div className="flex gap-1">
                     <button onClick={() => abrirEdicion(p)} disabled={!puedeEditar || !!form} className="btn-icono" title="Editar"><Edit2 size={15} /></button>

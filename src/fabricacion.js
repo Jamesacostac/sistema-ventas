@@ -6,7 +6,8 @@
 //   adicionales:     [{ id, nombre, precio, receta }]      se suman si el cliente los pide
 //   preciosCantidad: [{ cantidad, precio }]                 p. ej. 2 botones por $2.000
 //   ganancia:        % de ganancia deseada sobre el costo (para el precio sugerido)
-// Los materiales viven en materiales/{id}: { nombre, grupo, unidad, costo (por unidad), stock, minimo }.
+// Los materiales viven en materiales/{id}: { nombre, grupo, unidad, costo (por unidad), costoPedido, stock, minimo }.
+// costo es el de comprarlo para tener en stock; costoPedido (opcional) el de comprarlo cuando llega el pedido.
 
 export const UNIDADES = ['unidad', 'hoja', 'g', 'ml', 'm', 'cm'];
 
@@ -31,10 +32,12 @@ export const mostrarCantidad = (n) => {
   return String(Math.round(v * 1000) / 1000).replace('.', ',');
 };
 
-export const costoReceta = (receta, materialesPorId) =>
+const costoMaterial = (m, porPedido) => (porPedido && Number(m.costoPedido) > 0 ? Number(m.costoPedido) : Number(m.costo) || 0);
+
+export const costoReceta = (receta, materialesPorId, porPedido = false) =>
   (receta || []).reduce((total, linea) => {
     const m = materialesPorId[linea.materialId];
-    return total + (m ? (Number(m.costo) || 0) * (Number(linea.cantidad) || 0) : 0);
+    return total + (m ? costoMaterial(m, porPedido) * (Number(linea.cantidad) || 0) : 0);
   }, 0);
 
 // Problemas que hacen que el costo no sea confiable (para avisar en la calculadora)
