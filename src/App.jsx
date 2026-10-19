@@ -19,6 +19,7 @@ import ConfigMarca from './ConfigMarca';
 import { aplicarMarca } from './marca';
 import Recorrido from './Recorrido';
 import CajaBase from './CajaBase';
+import BajasLotes from './BajasLotes';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -2552,9 +2553,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
             />
           </div>
 
-          {(negocio?.fabricacion || perdidas.length > 0) && (
-            <PerdidasFinanzas perdidas={perdidas} puedeBorrar={puede('inventario')} operacion={operacion} docN={docN} />
-          )}
+          <PerdidasFinanzas perdidas={perdidas} puedeBorrar={puede('inventario')} operacion={operacion} docN={docN} fabricacion={!!negocio?.fabricacion} />
 
           <GananciaProductos ventas={ventas} perdidas={perdidas} />
 
@@ -2753,6 +2752,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               </button>
             </div>
           </div>
+
+          <BajasLotes productos={productos} puedeRegistrar={puede('inventario') || puede('ventas')} operacion={operacion} col={col} docN={docN} />
 
           <Plegable
             titulo={editandoProductoId ? 'Editar producto' : modoLote ? `Agregar lote: ${formProducto.nombre}` : 'Nuevo producto o lote'}

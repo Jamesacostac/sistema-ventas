@@ -296,12 +296,13 @@ export function RegistrarDano({ materiales, fabricados, puedeRegistrar, operacio
 
 // ---------- Pérdidas en Finanzas ----------
 
-export function PerdidasFinanzas({ perdidas, puedeBorrar, operacion, docN }) {
+export function PerdidasFinanzas({ perdidas, puedeBorrar, operacion, docN, fabricacion = false }) {
   const mes = fechaLocal().slice(0, 7);
   const delMes = perdidas.filter(p => (p.fecha || '').startsWith(mes));
   const suma = (lista) => lista.reduce((s, p) => s + (Number(p.valor) || 0), 0);
   const totalMes = suma(delMes);
   const pruebasMes = suma(delMes.filter(p => p.clase === 'prueba'));
+  const vencidosMes = suma(delMes.filter(p => p.clase === 'vencido'));
   const total = perdidas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
   const recientes = [...perdidas].sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)).slice(0, 30);
 
@@ -319,22 +320,23 @@ export function PerdidasFinanzas({ perdidas, puedeBorrar, operacion, docN }) {
   return (
     <div className="panel overflow-hidden">
       <div className="p-4 md:p-5 border-b-[1.5px] border-linea flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><AlertOctagon size={18} /> Daños y pruebas</h2>
+        <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><AlertOctagon size={18} /> Pérdidas</h2>
         <div className="flex gap-2 text-xs">
-          <span className="pastilla pastilla-peligro">Daños este mes {dinero(totalMes - pruebasMes)}</span>
-          <span className="pastilla pastilla-pendiente">Pruebas este mes {dinero(pruebasMes)}</span>
+          <span className="pastilla pastilla-peligro">Daños este mes {dinero(totalMes - pruebasMes - vencidosMes)}</span>
+          {(vencidosMes > 0 || !fabricacion) && <span className="pastilla pastilla-pendiente">Vencidos este mes {dinero(vencidosMes)}</span>}
+          {(pruebasMes > 0 || fabricacion) && <span className="pastilla pastilla-info">Pruebas este mes {dinero(pruebasMes)}</span>}
           <span className="pastilla pastilla-neutra">Total {dinero(total)}</span>
         </div>
       </div>
       {recientes.length === 0 ? (
-        <p className="p-6 text-center text-sm text-gris-calido">Sin daños ni pruebas registrados. Se registran en Inventario → Materiales.</p>
+        <p className="p-6 text-center text-sm text-gris-calido">{fabricacion ? 'Sin pérdidas registradas. Los vencidos se registran en Inventario → Productos y lotes; los daños y pruebas, en Inventario → Materiales.' : 'Sin pérdidas registradas. Los productos vencidos o dañados se registran en Inventario → Productos y lotes.'}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="tabla w-full text-left border-collapse text-sm">
             <thead>
               <tr>
                 <th className="p-3">Fecha</th>
-                <th className="p-3">Qué se dañó</th>
+                <th className="p-3">Qué se perdió</th>
                 <th className="p-3 hidden md:table-cell">Tipo</th>
                 <th className="p-3 text-right">Pérdida</th>
                 <th className="p-3"></th>

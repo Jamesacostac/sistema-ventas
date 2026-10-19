@@ -86,12 +86,12 @@ export default function GananciaProductos({ ventas, perdidas = [] }) {
         <div><p className="kpi-etiqueta text-gris-calido">Costo</p><p className="kpi-valor text-xl">{dinero(totales.costo)}</p></div>
         <div><p className="kpi-etiqueta text-gris-calido">Ganancia</p><p className="kpi-valor text-xl text-emerald-700">{dinero(gananciaTotal)}</p><p className="text-[11px] text-gris-calido">{pct(margen(totales))} sobre el costo</p></div>
         <div>
-          <p className="kpi-etiqueta text-gris-calido">Menos daños y staff</p>
+          <p className="kpi-etiqueta text-gris-calido">Menos pérdidas y staff</p>
           <p className={`kpi-valor text-xl ${totalPerdidas + totalStaff ? 'text-[#B23A50]' : ''}`}>{dinero(gananciaTotal - totalPerdidas - totalStaff)}</p>
           <p className="text-[11px] text-gris-calido">
             {totalPerdidas || totalStaff
-              ? [totalPerdidas && `Daños y pruebas: ${dinero(totalPerdidas)}`, totalStaff && `Staff: ${dinero(totalStaff)}`].filter(Boolean).join(' · ')
-              : 'Sin daños ni consumo del staff'}
+              ? [totalPerdidas && `Pérdidas: ${dinero(totalPerdidas)}`, totalStaff && `Staff: ${dinero(totalStaff)}`].filter(Boolean).join(' · ')
+              : 'Sin pérdidas ni consumo del staff'}
           </p>
         </div>
       </div>
