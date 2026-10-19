@@ -18,6 +18,7 @@ import GananciaProductos from './GananciaProductos';
 import ConfigMarca from './ConfigMarca';
 import { aplicarMarca } from './marca';
 import Recorrido from './Recorrido';
+import CajaBase from './CajaBase';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -145,7 +146,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   const [gastoExpandidoId, setGastoExpandidoId] = useState(null);
   const [editandoProductoId, setEditandoProductoId] = useState(null);
   const [editandoGastoId, setEditandoGastoId] = useState(null);
-  const [nuevoEfectivoBaseInput, setNuevoEfectivoBaseInput] = useState('');
+  const [movimientosCaja, setMovimientosCaja] = useState([]);
 
   // Referencias para listener de Telegram
   const productosRef = useRef(productos);
@@ -253,9 +254,11 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         const docCaja = snapshot.docs[0];
         setCajaInicial(docCaja.data().monto || 0);
         setCajaDocId(docCaja.id);
+        setMovimientosCaja(docCaja.data().movimientos || []);
       } else {
         setCajaInicial(0);
         setCajaDocId(null);
+        setMovimientosCaja([]);
       }
     }, manejarError);
 
@@ -1126,28 +1129,6 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       await op.guardar();
     } catch (error) {
       alert("Error al eliminar lote: " + error.message);
-    }
-  };
-
-  const handleGuardarEfectivoBase = async (e) => {
-    e.preventDefault();
-    if (!exigir('finanzas', 'ajustar la caja')) return;
-    const monto = Number(nuevoEfectivoBaseInput);
-    if (isNaN(monto)) return alert("Ingresa una cantidad válida.");
-
-    try {
-      const op = operacion('Efectivo base ajustado', `$${cajaInicial.toLocaleString()} → $${monto.toLocaleString()}`);
-      const datos = { monto, fechaActualizacion: new Date().toISOString() };
-      if (cajaDocId) {
-        op.actualizar(docN('caja_base', cajaDocId), datos, { monto: cajaInicial });
-      } else {
-        op.crear(doc(col('caja_base')), datos);
-      }
-      await op.guardar();
-      setNuevoEfectivoBaseInput('');
-      alert("Efectivo base no registrado actualizado correctamente.");
-    } catch (error) {
-      alert("Error al guardar efectivo base: " + error.message);
     }
   };
 
@@ -2559,31 +2540,19 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
           <GananciaProductos ventas={ventas} perdidas={perdidas} />
 
-          {/* Ajustar efectivo base no registrado */}
-          <Plegable
-            titulo="Efectivo base"
-            descripcion="Dinero físico en caja que no se había registrado"
-            icono={<Banknote size={18} />}
-          >
-            {!puede('finanzas') && <AvisoSinPermiso accion="ajustar la caja" />}
-            <form onSubmit={handleGuardarEfectivoBase} className="flex gap-3 items-center">
-              <fieldset disabled={!puede('finanzas')} className="contents">
-              <input
-                type="number"
-                placeholder={`Actual: ${cajaInicial}`}
-                value={nuevoEfectivoBaseInput}
-                onChange={(e) => setNuevoEfectivoBaseInput(e.target.value)}
-                className="campo w-48"
-              />
-              <button
-                type="submit"
-                className="btn btn-exito"
-              >
-                <Save size={16} /> Guardar Base
-              </button>
-              </fieldset>
-            </form>
-          </Plegable>
+          {/* Efectivo base: entradas, salidas y conteo de la caja */}
+          <CajaBase
+            cajaInicial={cajaInicial}
+            cajaDocId={cajaDocId}
+            movimientos={movimientosCaja}
+            ventasEfectivo={totalVentasEfectivoCobrado}
+            puedeEditar={puede('finanzas')}
+            operacion={operacion}
+            col={col}
+            docN={docN}
+            nombre={perfil?.nombre || ''}
+            AvisoSinPermiso={AvisoSinPermiso}
+          />
 
           {/* Registro de Gastos y Proveedores */}
           <Plegable
