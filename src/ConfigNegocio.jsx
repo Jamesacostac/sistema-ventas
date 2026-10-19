@@ -126,7 +126,7 @@ export default function ConfigNegocio({ negocioId, negocio, esTitular, operacion
                     type="button"
                     key={clave}
                     onClick={() => setForm({ ...form, color: clave })}
-                    className={`h-9 px-3 rounded-full border-2 text-xs font-bold flex items-center gap-1.5 disabled:opacity-60 ${form.color === clave ? 'border-tinta shadow-[2px_2px_0_#28203B]' : 'border-transparent'}`}
+                    className={`h-9 px-3 rounded-full border-2 text-xs font-bold flex items-center gap-1.5 disabled:opacity-60 ${form.color === clave ? 'border-tinta shadow-[2px_2px_0_var(--color-tinta)]' : 'border-transparent'}`}
                     style={{ background: c.hex }}
                   >
                     {form.color === clave && <CheckCircle size={14} />} {c.nombre}
@@ -149,7 +149,7 @@ export default function ConfigNegocio({ negocioId, negocio, esTitular, operacion
               </div>
             </div>
 
-            <div className="rounded-xl bg-crema/70 border-[1.5px] border-[#E9E1D2] p-4 text-sm">
+            <div className="rounded-xl bg-crema/70 border-[1.5px] border-linea p-4 text-sm">
               <p className="kpi-etiqueta text-gris-calido mb-2">Ejemplo con una ganancia de {dinero(ejemplo)}</p>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div><p className="text-xs text-gris-calido">Ahorro</p><p className="kpi-valor text-lg">{dinero(ejemplo * ahorro / 100)}</p></div>
@@ -160,8 +160,8 @@ export default function ConfigNegocio({ negocioId, negocio, esTitular, operacion
 
             <hr className="separador !my-2" />
 
-            <label className="flex items-start gap-3 rounded-xl border-[1.5px] border-[#E9E1D2] p-4 cursor-pointer">
-              <input type="checkbox" checked={form.fabricacion} onChange={(e) => setForm({ ...form, fabricacion: e.target.checked })} className="mt-1 accent-[#28203B]" />
+            <label className="flex items-start gap-3 rounded-xl border-[1.5px] border-linea p-4 cursor-pointer">
+              <input type="checkbox" checked={form.fabricacion} onChange={(e) => setForm({ ...form, fabricacion: e.target.checked })} className="mt-1 accent-tinta" />
               <span>
                 <span className="font-semibold text-tinta text-sm">Fabricación: materiales y recetas</span>
                 <span className="block text-xs text-gris-calido">Para productos que se arman con piezas (botones, camisetas estampadas...). Agrega Materiales y Productos fabricados al menú Inventario.</span>

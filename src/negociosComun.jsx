@@ -53,7 +53,7 @@ export function FormNuevoNegocio({ onCreado }) {
               type="button"
               key={clave}
               onClick={() => setForm({ ...form, color: clave })}
-              className={`h-9 px-3 rounded-full border-2 text-xs font-bold flex items-center gap-1.5 ${form.color === clave ? 'border-tinta shadow-[2px_2px_0_#28203B]' : 'border-transparent'}`}
+              className={`h-9 px-3 rounded-full border-2 text-xs font-bold flex items-center gap-1.5 ${form.color === clave ? 'border-tinta shadow-[2px_2px_0_var(--color-tinta)]' : 'border-transparent'}`}
               style={{ background: c.hex }}
             >
               {form.color === clave && <CheckCircle size={14} />} {c.nombre}

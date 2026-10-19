@@ -194,7 +194,7 @@ export default function Materiales({ materiales, productos, puedeEditar, operaci
       </Plegable>
 
       <div className="panel overflow-hidden">
-        <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2] flex flex-wrap items-center justify-between gap-3">
+        <div className="p-4 md:p-5 border-b-[1.5px] border-linea flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><Layers size={18} /> Materiales</h2>
           <div className="relative w-full sm:w-64">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gris-calido" />

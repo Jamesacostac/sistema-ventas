@@ -65,7 +65,7 @@ export default function SelectorFabricado({ producto, materialesPorId, onAgregar
                     type="checkbox"
                     checked={adicionales.includes(a.id)}
                     onChange={(e) => setAdicionales(xs => (e.target.checked ? [...xs, a.id] : xs.filter(x => x !== a.id)))}
-                    className="accent-[#28203B]"
+                    className="accent-tinta"
                   />
                   <span className="flex-1">{a.nombre}</span>
                   <span className="text-gris-calido">+{dinero(a.precio)}</span>

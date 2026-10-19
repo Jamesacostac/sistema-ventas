@@ -13,7 +13,7 @@
    Regla de oro del manual: texto en tinta sobre color, o claro sobre tinta.
    ===================================================================== */
 
-@theme {
+@theme static {
   /* Colores oficiales */
   --color-tinta: #28203B;
   --color-turquesa: #55C4BF;
@@ -25,6 +25,13 @@
   --color-crema: #F7F2E8;
   --color-papel: #FFFDF8;
   --color-gris-calido: #665F68;
+
+  /* Colores de apoyo (los cambia la marca de cada negocio) */
+  --color-linea: #E9E1D2;
+  --color-linea-fuerte: #D6CCBA;
+  --color-linea-suave: #F0EADF;
+  --color-tarjeta: #FFFFFF;
+  --color-exito: #7EE5A8;
 
   /* indigo -> tinta (botones, pestaña activa) con matices turquesa */
   --color-indigo-50: #EAF7F6;
@@ -90,10 +97,10 @@
   /* Formas y sombras "pop y cómic" (sombra desplazada, sin desenfoque) */
   --radius-xl: 1rem;
   --radius-2xl: 1.375rem;
-  --shadow-sm: 0 4px 0 rgba(40, 32, 59, 0.14);
-  --shadow: 0 4px 0 rgba(40, 32, 59, 0.22);
-  --shadow-md: 0 6px 0 rgba(40, 32, 59, 0.18);
-  --shadow-lg: 8px 8px 0 rgba(40, 32, 59, 0.18);
+  --shadow-sm: 0 4px 0 color-mix(in srgb, var(--color-tinta) 14%, transparent);
+  --shadow: 0 4px 0 color-mix(in srgb, var(--color-tinta) 22%, transparent);
+  --shadow-md: 0 6px 0 color-mix(in srgb, var(--color-tinta) 18%, transparent);
+  --shadow-lg: 8px 8px 0 color-mix(in srgb, var(--color-tinta) 18%, transparent);
 }
 
 @layer base {
@@ -117,17 +124,17 @@
 @layer components {
   /* Trama de puntos de la marca (22 px, tinta al 10 %) */
   .marca-puntos {
-    background-image: radial-gradient(rgba(40, 32, 59, 0.10) 1.6px, transparent 1.7px);
+    background-image: radial-gradient(color-mix(in srgb, var(--color-tinta) 10%, transparent) 1.6px, transparent 1.7px);
     background-size: 22px 22px;
   }
 
   /* Cabecera turquesa con puntos y franja crema en diagonal */
   .marca-cabecera {
     background-color: var(--color-turquesa);
-    background-image: radial-gradient(rgba(40, 32, 59, 0.10) 1.6px, transparent 1.7px);
+    background-image: radial-gradient(color-mix(in srgb, var(--color-tinta) 10%, transparent) 1.6px, transparent 1.7px);
     background-size: 22px 22px;
     border: 3px solid var(--color-tinta);
-    box-shadow: 0 6px 0 rgba(40, 32, 59, 0.18);
+    box-shadow: 0 6px 0 color-mix(in srgb, var(--color-tinta) 18%, transparent);
   }
 
   /* Titular con sombra cómic */
@@ -170,7 +177,7 @@
     background: var(--color-papel);
     border: 3px solid var(--color-tinta);
     border-radius: 1.375rem;
-    box-shadow: 8px 8px 0 rgba(40, 32, 59, 0.18);
+    box-shadow: 8px 8px 0 color-mix(in srgb, var(--color-tinta) 18%, transparent);
   }
 
   /* ================= SISTEMA DE DISEÑO DE LA APP =================
@@ -219,14 +226,14 @@
   }
   .btn-primario { background: var(--color-sol); }
   .btn-primario:hover:not(:disabled) { background: var(--color-sol-claro); }
-  .btn-oscuro { background: var(--color-tinta); color: var(--color-crema); box-shadow: 3px 3px 0 rgba(40, 32, 59, 0.35); }
-  .btn-oscuro:hover:not(:disabled) { background: #3a2f52; box-shadow: 4px 4px 0 rgba(40, 32, 59, 0.35); }
-  .btn-claro { background: #fff; }
+  .btn-oscuro { background: var(--color-tinta); color: var(--color-crema); box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-tinta) 35%, transparent); }
+  .btn-oscuro:hover:not(:disabled) { background: color-mix(in srgb, var(--color-tinta) 85%, white); box-shadow: 4px 4px 0 color-mix(in srgb, var(--color-tinta) 35%, transparent); }
+  .btn-claro { background: var(--color-tarjeta); }
   .btn-claro:hover:not(:disabled) { background: var(--color-crema); }
-  .btn-exito { background: #7EE5A8; }
-  .btn-exito:hover:not(:disabled) { background: #9aecbc; }
+  .btn-exito { background: var(--color-exito); }
+  .btn-exito:hover:not(:disabled) { background: color-mix(in srgb, var(--color-exito) 75%, white); }
   .btn-peligro { background: var(--color-coral); }
-  .btn-peligro:hover:not(:disabled) { background: #ef7d90; }
+  .btn-peligro:hover:not(:disabled) { background: color-mix(in srgb, var(--color-coral) 80%, white); }
 
   .btn-icono {
     display: inline-flex;
@@ -239,8 +246,8 @@
     transition: background-color 0.15s ease, border-color 0.15s ease;
   }
   .btn-icono:hover:not(:disabled) { background: var(--color-crema); border-color: var(--color-tinta); }
-  .btn-icono-peligro { color: #C9425B; }
-  .btn-icono-peligro:hover:not(:disabled) { background: #FAD7DE; color: var(--color-tinta); }
+  .btn-icono-peligro { color: var(--color-rose-600); }
+  .btn-icono-peligro:hover:not(:disabled) { background: var(--color-rose-100); color: var(--color-tinta); }
   .btn-icono:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* Enlace de texto: subrayado turquesa */
@@ -253,20 +260,20 @@
     text-underline-offset: 3px;
   }
   .enlace:hover { text-decoration-color: var(--color-coral); }
-  .enlace-peligro { text-decoration-color: var(--color-coral); color: #A3324A; }
+  .enlace-peligro { text-decoration-color: var(--color-coral); color: var(--color-rose-700); }
 
   /* Panel / tarjeta de contenido */
   .panel {
-    background: #fff;
-    border: 1.5px solid #E9E1D2;
+    background: var(--color-tarjeta);
+    border: 1.5px solid var(--color-linea);
     border-radius: 1.25rem;
-    box-shadow: 0 2px 0 rgba(40, 32, 59, 0.05);
+    box-shadow: 0 2px 0 color-mix(in srgb, var(--color-tinta) 5%, transparent);
   }
 
   /* Separador entre bloques de un panel */
   .separador {
     border: 0;
-    border-top: 1.5px dashed #E2D9C8;
+    border-top: 1.5px dashed var(--color-linea);
     margin: 1.25rem 0;
   }
 
@@ -302,10 +309,10 @@
     min-width: 13rem;
     margin-top: 0.4rem;
     padding: 0.35rem;
-    background: #fff;
+    background: var(--color-tarjeta);
     border: 2px solid var(--color-tinta);
     border-radius: 1rem;
-    box-shadow: 4px 4px 0 rgba(40, 32, 59, 0.18);
+    box-shadow: 4px 4px 0 color-mix(in srgb, var(--color-tinta) 18%, transparent);
   }
   .menu-item {
     display: flex;
@@ -322,9 +329,9 @@
   .menu-item:hover { background: var(--color-crema); }
   .menu-item-activo { background: var(--color-tinta); color: var(--color-crema); }
   .menu-item-activo:hover { background: var(--color-tinta); }
-  .menu-item-peligro { color: #A3324A; }
-  .menu-item-peligro:hover { background: #FAD7DE; }
-  .menu-separador { height: 1.5px; margin: 0.3rem 0.4rem; background: #E9E1D2; }
+  .menu-item-peligro { color: var(--color-rose-700); }
+  .menu-item-peligro:hover { background: var(--color-rose-100); }
+  .menu-separador { height: 1.5px; margin: 0.3rem 0.4rem; background: var(--color-linea); }
   .menu-titulo {
     padding: 0.4rem 0.65rem 0.2rem;
     font-family: var(--font-mono);
@@ -349,9 +356,9 @@
   .campo {
     width: 100%;
     padding: 0.5rem 0.75rem;
-    border: 2px solid #D6CCBA;
+    border: 2px solid var(--color-linea-fuerte);
     border-radius: 0.75rem;
-    background: #fff;
+    background: var(--color-tarjeta);
     font-size: 0.875rem;
     color: var(--color-tinta);
     outline: none;
@@ -359,10 +366,10 @@
   }
   .campo:focus {
     border-color: var(--color-tinta);
-    box-shadow: 0 0 0 3px rgba(85, 196, 191, 0.45);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-turquesa) 45%, transparent);
   }
   .campo:disabled { background: var(--color-crema); cursor: not-allowed; }
-  .campo::placeholder { color: #9A929C; }
+  .campo::placeholder { color: var(--color-slate-400); }
   .etiqueta {
     display: block;
     margin-bottom: 0.25rem;
@@ -383,10 +390,10 @@
     font-weight: 500;
     color: var(--color-tinta);
   }
-  .aviso-ok { background: #D3F6E2; }
-  .aviso-error { background: #FAD7DE; }
-  .aviso-atencion { background: #FDEFC9; }
-  .aviso-info { background: #D4F0EE; }
+  .aviso-ok { background: var(--color-emerald-100); }
+  .aviso-error { background: var(--color-rose-100); }
+  .aviso-atencion { background: var(--color-amber-100); }
+  .aviso-info { background: var(--color-indigo-100); }
 
   /* Pastillas de estado (Pagado, Pendiente, rangos...) */
   .pastilla {
@@ -402,7 +409,7 @@
     color: var(--color-tinta);
     white-space: nowrap;
   }
-  .pastilla-ok { background: #7EE5A8; }
+  .pastilla-ok { background: var(--color-exito); }
   .pastilla-pendiente { background: var(--color-sol); }
   .pastilla-peligro { background: var(--color-coral); }
   .pastilla-neutra { background: var(--color-crema); }
@@ -414,14 +421,14 @@
     overflow: hidden;
     border: 2px solid var(--color-tinta);
     border-radius: 1.25rem;
-    box-shadow: 3px 3px 0 rgba(40, 32, 59, 0.85);
+    box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-tinta) 85%, transparent);
     color: var(--color-tinta);
   }
   .kpi-sol { background-color: var(--color-sol); }
   .kpi-turquesa { background-color: var(--color-turquesa); }
   .kpi-coral { background-color: var(--color-coral); }
   .kpi-crema { background-color: var(--color-crema); }
-  .kpi-verde { background-color: #7EE5A8; }
+  .kpi-verde { background-color: var(--color-exito); }
   .kpi-tinta { background-color: var(--color-tinta); color: var(--color-crema); }
   .kpi-etiqueta {
     font-family: var(--font-mono);
@@ -440,17 +447,17 @@
     padding: 0.4rem;
     border: 2px solid currentColor;
     border-radius: 0.75rem;
-    background: rgba(255, 253, 248, 0.55);
+    background: color-mix(in srgb, var(--color-papel) 55%, transparent);
   }
-  .kpi-tinta .kpi-icono { background: rgba(255, 253, 248, 0.12); }
+  .kpi-tinta .kpi-icono { background: color-mix(in srgb, var(--color-papel) 12%, transparent); }
 
   /* Tablas: encabezado crema con etiquetas en mono */
   .tabla thead tr {
     background: var(--color-crema);
-    border-bottom: 1.5px solid #D6CCBA;
+    border-bottom: 1.5px solid var(--color-linea-fuerte);
   }
-  .tabla tbody tr { border-top: 1px solid #F0EADF; }
-  .tabla tbody tr:hover { background: #FFFDF8; }
+  .tabla tbody tr { border-top: 1px solid var(--color-linea-suave); }
+  .tabla tbody tr:hover { background: var(--color-papel); }
   .tabla thead th {
     font-family: var(--font-mono);
     font-size: 11px;
@@ -472,7 +479,7 @@
     border-radius: 999px;
     font-size: 0.8125rem;
     font-weight: 700;
-    color: rgba(40, 32, 59, 0.78);
+    color: color-mix(in srgb, var(--color-tinta) 78%, transparent);
     transition: background-color 0.15s ease, color 0.15s ease;
   }
   .pestana:hover { background: var(--color-crema); color: var(--color-tinta); }
@@ -481,7 +488,7 @@
     background: var(--color-tinta);
     color: var(--color-crema);
     border-color: var(--color-tinta);
-    box-shadow: 2px 2px 0 rgba(40, 32, 59, 0.3);
+    box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-tinta) 30%, transparent);
   }
 
   /* ================= PUNTO DE VENTA ================= */
@@ -495,9 +502,9 @@
     gap: 0.75rem;
     min-height: 7.5rem;
     padding: 0.85rem;
-    border: 1.5px solid #E9E1D2;
+    border: 1.5px solid var(--color-linea);
     border-radius: 1rem;
-    background: #fff;
+    background: var(--color-tarjeta);
     text-align: left;
     color: var(--color-tinta);
     transition: transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease;
@@ -508,8 +515,8 @@
     box-shadow: 3px 3px 0 var(--color-tinta);
   }
   .producto-tile:active:not(:disabled) { transform: translate(1px, 1px); box-shadow: none; }
-  .producto-tile:disabled { opacity: 0.5; cursor: not-allowed; background: #FBF8F2; }
-  .producto-tile-en-carrito { border-color: var(--color-tinta); background: #FFFBF0; }
+  .producto-tile:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-crema); }
+  .producto-tile-en-carrito { border-color: var(--color-tinta); background: color-mix(in srgb, var(--color-sol) 12%, white); }
   .producto-cantidad {
     position: absolute;
     top: -0.55rem;
@@ -530,9 +537,9 @@
   /* Filtros en píldora (categorías) */
   .chip {
     padding: 0.3rem 0.8rem;
-    border: 1.5px solid #D6CCBA;
+    border: 1.5px solid var(--color-linea-fuerte);
     border-radius: 999px;
-    background: #fff;
+    background: var(--color-tarjeta);
     font-size: 0.75rem;
     font-weight: 700;
     color: var(--color-tinta);
@@ -548,9 +555,9 @@
     flex-wrap: wrap;
     gap: 0.2rem;
     padding: 0.2rem;
-    border: 1.5px solid #D6CCBA;
+    border: 1.5px solid var(--color-linea-fuerte);
     border-radius: 0.9rem;
-    background: #fff;
+    background: var(--color-tarjeta);
   }
   .segmento {
     flex: 1 1 auto;
@@ -562,7 +569,7 @@
     border-radius: 0.7rem;
     font-size: 0.78rem;
     font-weight: 700;
-    color: rgba(40, 32, 59, 0.75);
+    color: color-mix(in srgb, var(--color-tinta) 75%, transparent);
     white-space: nowrap;
     transition: background-color 0.15s ease, color 0.15s ease;
   }
@@ -576,7 +583,7 @@
     align-items: center;
     border: 1.5px solid var(--color-tinta);
     border-radius: 999px;
-    background: #fff;
+    background: var(--color-tarjeta);
     overflow: hidden;
   }
   .stepper button {
@@ -608,4 +615,54 @@
 
   /* Íconos de línea un poco más gruesos, como los del kit de marca */
   svg.lucide { stroke-width: 2.25; }
+}
+
+/* =====================================================================
+   Estilo "papel" (marca de cada negocio, ver src/marca.js): plano y
+   tranquilo, sin sombras de cómic ni trama de puntos. Se activa con
+   data-estilo="papel" en <html> o en una vista previa.
+   ===================================================================== */
+@layer components {
+  [data-estilo="papel"] :is(.marca-cabecera, .marca-puntos) { background-image: none; }
+  [data-estilo="papel"] .marca-cabecera { border-width: 1.5px; border-color: var(--color-linea-fuerte); box-shadow: none; }
+  [data-estilo="papel"] .marca-titular { letter-spacing: 0.08em; }
+  [data-estilo="papel"] .marca-tarjeta { border-width: 1.5px; box-shadow: 0 12px 32px color-mix(in srgb, var(--color-tinta) 8%, transparent); }
+
+  [data-estilo="papel"] :is(.btn, .marca-boton) { border-width: 1.5px; box-shadow: none; }
+  [data-estilo="papel"] :is(.btn, .marca-boton):hover:not(:disabled) { transform: none; box-shadow: none; filter: brightness(0.96); }
+  [data-estilo="papel"] :is(.btn, .marca-boton):active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+  [data-estilo="papel"] .btn-sm { box-shadow: none; }
+  [data-estilo="papel"] .btn-claro { border-color: var(--color-linea-fuerte); }
+
+  [data-estilo="papel"] .kpi { border-width: 1.5px; border-color: color-mix(in srgb, var(--color-tinta) 14%, transparent); box-shadow: none; }
+  [data-estilo="papel"] .kpi-icono { border-width: 1.5px; }
+  [data-estilo="papel"] .pastilla { border-width: 1.5px; border-color: color-mix(in srgb, var(--color-tinta) 28%, transparent); }
+  [data-estilo="papel"] .aviso { border-width: 1.5px; border-color: color-mix(in srgb, var(--color-tinta) 20%, transparent); }
+  [data-estilo="papel"] .menu-panel { border-width: 1.5px; border-color: var(--color-linea-fuerte); box-shadow: 0 12px 32px color-mix(in srgb, var(--color-tinta) 12%, transparent); }
+  [data-estilo="papel"] .panel :is(h2, h3) > svg:first-child { border-color: transparent; }
+  [data-estilo="papel"] .pestana-activa,
+  [data-estilo="papel"] .pestana-activa:hover { box-shadow: none; }
+  [data-estilo="papel"] .producto-tile:hover:not(:disabled) { transform: none; box-shadow: 0 6px 18px color-mix(in srgb, var(--color-tinta) 10%, transparent); }
+  [data-estilo="papel"] :is(.producto-cantidad, .stepper) { border-width: 1.5px; }
+  /* La barra usa utilidades de Tailwind (border-2 border-tinta), que van en una capa posterior */
+  [data-estilo="papel"] .barra-pestanas { border-width: 1.5px !important; border-color: var(--color-linea-fuerte) !important; }
+}
+
+/* Vista previa en estilo "pop" dentro de una página en estilo "papel": se devuelven los valores originales */
+@layer components {
+  [data-estilo="papel"] [data-estilo="pop"] .marca-cabecera {
+    background-image: radial-gradient(color-mix(in srgb, var(--color-tinta) 10%, transparent) 1.6px, transparent 1.7px);
+    border-width: 3px; border-color: var(--color-tinta);
+    box-shadow: 0 6px 0 color-mix(in srgb, var(--color-tinta) 18%, transparent);
+  }
+  [data-estilo="papel"] [data-estilo="pop"] .marca-titular { letter-spacing: 0.01em; }
+  [data-estilo="papel"] [data-estilo="pop"] .btn { border-width: 2.5px; box-shadow: 3px 3px 0 var(--color-tinta); }
+  [data-estilo="papel"] [data-estilo="pop"] .btn-sm { border-width: 2px; box-shadow: 2px 2px 0 var(--color-tinta); }
+  [data-estilo="papel"] [data-estilo="pop"] .btn-oscuro { box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-tinta) 35%, transparent); }
+  [data-estilo="papel"] [data-estilo="pop"] .btn-claro { border-color: var(--color-tinta); }
+  [data-estilo="papel"] [data-estilo="pop"] .kpi { border-width: 2px; border-color: var(--color-tinta); box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-tinta) 85%, transparent); }
+  [data-estilo="papel"] [data-estilo="pop"] .kpi-icono { border-width: 2px; }
+  [data-estilo="papel"] [data-estilo="pop"] .pastilla { border-width: 2px; border-color: var(--color-tinta); }
+  [data-estilo="papel"] [data-estilo="pop"] .aviso { border-width: 2px; border-color: var(--color-tinta); }
+  [data-estilo="papel"] [data-estilo="pop"] .panel :is(h2, h3) > svg:first-child { border-color: var(--color-tinta); }
 }

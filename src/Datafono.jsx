@@ -117,7 +117,7 @@ export function ConfigDatafono({ negocioId, negocio, esTitular, operacion }) {
 
       <fieldset disabled={!esTitular} className="space-y-3">
         {datafonos.map(d => (
-          <div key={d.id} className={`p-3 rounded-xl border-[1.5px] ${d.id === predeterminado ? 'border-tinta bg-crema/50' : 'border-[#E9E1D2]'}`}>
+          <div key={d.id} className={`p-3 rounded-xl border-[1.5px] ${d.id === predeterminado ? 'border-tinta bg-crema/50' : 'border-linea'}`}>
             <div className="flex items-center gap-2 mb-2">
               <input
                 value={d.nombre}
@@ -145,8 +145,8 @@ export function ConfigDatafono({ negocioId, negocio, esTitular, operacion }) {
 
         <button type="button" onClick={agregar} className="btn btn-claro btn-sm"><Plus size={14} /> Agregar otro datáfono</button>
 
-        <label className="flex items-start gap-2 text-sm p-3 rounded-xl bg-crema/60 border-[1.5px] border-[#E9E1D2] cursor-pointer">
-          <input type="checkbox" checked={cobrarAlCliente} onChange={(e) => setCobrarAlCliente(e.target.checked)} className="mt-0.5 accent-[#28203B]" />
+        <label className="flex items-start gap-2 text-sm p-3 rounded-xl bg-crema/60 border-[1.5px] border-linea cursor-pointer">
+          <input type="checkbox" checked={cobrarAlCliente} onChange={(e) => setCobrarAlCliente(e.target.checked)} className="mt-0.5 accent-tinta" />
           <span>
             <b>Sumar las tarifas al total cuando el cliente paga con tarjeta</b>
             <span className="block text-xs text-gris-calido">Si lo desactivas, el negocio asume la tarifa y solo verás cuánto te llega.</span>
@@ -155,7 +155,7 @@ export function ConfigDatafono({ negocioId, negocio, esTitular, operacion }) {
       </fieldset>
 
       {/* Ejemplo paso a paso, igual que en el pedido */}
-      <div className="mt-4 rounded-xl border-[1.5px] border-[#E9E1D2] p-4 text-sm">
+      <div className="mt-4 rounded-xl border-[1.5px] border-linea p-4 text-sm">
         <p className="kpi-etiqueta text-gris-calido mb-3">Ejemplo con {activo.nombre || 'el datáfono'}: venta de {dinero(ejemplo)} pagada con tarjeta</p>
         {(() => {
           const caso = cobrarAlCliente ? conRecargo : { ...sinRecargo, cobrar: ejemplo, recargo: 0 };
@@ -166,7 +166,7 @@ export function ConfigDatafono({ negocioId, negocio, esTitular, operacion }) {
             <div className="space-y-1">
               <Fila texto="1. Valor de la venta" valor={dinero(ejemplo)} />
               {cobrarAlCliente && <Fila texto="2. Se suma el recargo de tarjeta" valor={`+${dinero(caso.recargo)}`} clase="text-gris-calido" />}
-              <Fila texto={`${cobrarAlCliente ? '3' : '2'}. El cliente paga`} valor={dinero(caso.cobrar)} clase="font-bold border-t border-[#E9E1D2] pt-1" />
+              <Fila texto={`${cobrarAlCliente ? '3' : '2'}. El cliente paga`} valor={dinero(caso.cobrar)} clase="font-bold border-t border-linea pt-1" />
               <p className="text-xs text-gris-calido pt-1">{activo.nombre || 'El datáfono'} descuenta sobre {dinero(caso.cobrar)}:</p>
               <Fila texto={`Comisión (${num(activo.comision)} %)`} valor={`−${dinero(caso.comision)}`} clase="text-rose-600 pl-3" />
               <Fila texto={`IVA de la comisión (${num(activo.iva)} %)`} valor={`−${dinero(caso.iva)}`} clase="text-rose-600 pl-3" />

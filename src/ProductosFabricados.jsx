@@ -129,7 +129,7 @@ function TablaCostos({ producto, materialesPorId }) {
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-xl border-[1.5px] border-[#E9E1D2]">
+      <div className="overflow-x-auto rounded-xl border-[1.5px] border-linea">
         <table className="tabla w-full text-left border-collapse text-xs md:text-sm">
           <thead>
             <tr>
@@ -385,7 +385,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
               <p className="text-xs text-gris-calido">Algo que el cliente elige, como la talla o el tipo de base. Cada valor puede cambiar el precio y gastar sus propios materiales.</p>
             </div>
             {form.opciones.map(o => (
-              <div key={o.id} className="rounded-xl border-[1.5px] border-[#E9E1D2] p-3 md:p-4 space-y-3">
+              <div key={o.id} className="rounded-xl border-[1.5px] border-linea p-3 md:p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <input value={o.nombre} onChange={(e) => setOpcion(o.id, { nombre: e.target.value })} className="campo font-semibold" placeholder="Ej. Talla" />
                   <button type="button" onClick={() => set('opciones', form.opciones.filter(x => x.id !== o.id))} className="btn-icono btn-icono-peligro" title="Quitar opción"><Trash2 size={15} /></button>
@@ -513,7 +513,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
                   </div>
                 </div>
                 {abierto && (
-                  <div className="px-4 pb-4 pt-3 border-t-[1.5px] border-dashed border-[#E2D9C8] space-y-3">
+                  <div className="px-4 pb-4 pt-3 border-t-[1.5px] border-dashed border-linea space-y-3">
                     {(p.receta || []).length > 0 && (
                       <p className="text-xs text-gris-calido flex flex-wrap items-center gap-1.5">
                         <Layers size={13} /> Siempre gasta: {p.receta.map(l => `${mostrarCantidad(l.cantidad)} ${materialesPorId[l.materialId]?.nombre || '(material borrado)'}`).join(', ')}

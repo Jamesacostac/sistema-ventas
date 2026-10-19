@@ -84,7 +84,7 @@ function Migracion({ usuario, cuenta, negocioId, esTitularNegocio }) {
       ) : (
         <p className="text-sm text-center">El titular está preparando este negocio. Vuelve a entrar en unos minutos.</p>
       )}
-      <button onClick={cerrarSesion} className="w-full flex items-center justify-center gap-1.5 text-xs text-gris-calido hover:text-coral mt-5 pt-4 border-t border-[#F0EADF]">
+      <button onClick={cerrarSesion} className="w-full flex items-center justify-center gap-1.5 text-xs text-gris-calido hover:text-coral mt-5 pt-4 border-t border-linea-suave">
         <LogOut size={14} /> Cerrar sesión
       </button>
     </Pantalla>
@@ -127,7 +127,7 @@ function SinNegocios({ cuenta, alCrear }) {
         <p className="aviso aviso-info mb-4">Si trabajas en un negocio que ya existe, pídele al titular que te agregue en <b>Equipo → Socios</b>.</p>
       )}
       <FormNuevoNegocio onCreado={alCrear} />
-      <button onClick={cerrarSesion} className="w-full flex items-center justify-center gap-1.5 text-xs text-gris-calido hover:text-coral mt-5 pt-4 border-t border-[#F0EADF]">
+      <button onClick={cerrarSesion} className="w-full flex items-center justify-center gap-1.5 text-xs text-gris-calido hover:text-coral mt-5 pt-4 border-t border-linea-suave">
         <LogOut size={14} /> Cerrar sesión
       </button>
     </Pantalla>

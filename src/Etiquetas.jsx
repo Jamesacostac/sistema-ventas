@@ -151,10 +151,10 @@ export default function Etiquetas({ productos, puedeEditar, onAsignarCodigos }) 
           </div>
           <div className="flex gap-4 text-sm font-semibold pb-2">
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" className="accent-[#28203B]" checked={opciones.nombre} onChange={(e) => setOpciones({ ...opciones, nombre: e.target.checked })} /> Nombre
+              <input type="checkbox" className="accent-tinta" checked={opciones.nombre} onChange={(e) => setOpciones({ ...opciones, nombre: e.target.checked })} /> Nombre
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" className="accent-[#28203B]" checked={opciones.precio} onChange={(e) => setOpciones({ ...opciones, precio: e.target.checked })} /> Precio
+              <input type="checkbox" className="accent-tinta" checked={opciones.precio} onChange={(e) => setOpciones({ ...opciones, precio: e.target.checked })} /> Precio
             </label>
           </div>
         </div>

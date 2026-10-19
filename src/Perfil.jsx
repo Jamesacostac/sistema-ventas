@@ -190,7 +190,7 @@ export default function Perfil({ usuario, onReverificar, negocios = [], negocioI
         <p className="text-xs text-slate-500 mb-4">Cada negocio tiene sus propias ventas, inventario, socios y finanzas. No se mezclan.</p>
         <div className="space-y-2 mb-5">
           {negocios.map(n => (
-            <div key={n.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border-[1.5px] ${n.id === negocioId ? 'border-tinta bg-crema/60' : 'border-[#E9E1D2]'}`}>
+            <div key={n.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border-[1.5px] ${n.id === negocioId ? 'border-tinta bg-crema/60' : 'border-linea'}`}>
               <div className="flex items-center gap-3 min-w-0">
                 <span className="h-8 w-8 rounded-full border-2 border-tinta shrink-0" style={{ background: colorNegocio(n.color) }} />
                 <div className="min-w-0">
@@ -210,7 +210,7 @@ export default function Perfil({ usuario, onReverificar, negocios = [], negocioI
           <summary className="btn btn-oscuro btn-sm cursor-pointer list-none w-fit">
             <PlusCircle size={14} /> Registrar nuevo negocio
           </summary>
-          <div className="mt-4 p-4 rounded-xl border-[1.5px] border-dashed border-[#E2D9C8]">
+          <div className="mt-4 p-4 rounded-xl border-[1.5px] border-dashed border-linea">
             <FormNuevoNegocio onCreado={(id) => cambiarNegocio(id)} />
           </div>
         </details>

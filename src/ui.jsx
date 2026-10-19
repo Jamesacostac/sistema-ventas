@@ -137,7 +137,7 @@ export function Plegable({ titulo, icono, descripcion, abiertoInicial = false, f
           <ChevronDown size={14} className={`transition-transform ${visible ? 'rotate-180' : ''}`} />
         </span>
       </button>
-      {visible && <div className="px-5 pb-5 pt-4 border-t-[1.5px] border-dashed border-[#E2D9C8]">{children}</div>}
+      {visible && <div className="px-5 pb-5 pt-4 border-t-[1.5px] border-dashed border-linea">{children}</div>}
     </div>
   );
 }

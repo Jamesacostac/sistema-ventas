@@ -61,7 +61,7 @@ export default function GananciaProductos({ ventas, perdidas = [] }) {
 
   return (
     <div className="panel overflow-hidden">
-      <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2] flex flex-wrap items-center justify-between gap-3">
+      <div className="p-4 md:p-5 border-b-[1.5px] border-linea flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><BarChart3 size={18} /> Ganancia por producto</h2>
           <p className="text-xs text-gris-calido mt-1">Ventas pagadas y fiadas, también las de cajas ya cerradas.</p>

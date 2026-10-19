@@ -15,6 +15,8 @@ import ProductosFabricados from './ProductosFabricados';
 import SelectorFabricado from './SelectorFabricado';
 import { CompraMateriales, RegistrarDano, PerdidasFinanzas } from './ComprasDanos';
 import GananciaProductos from './GananciaProductos';
+import ConfigMarca from './ConfigMarca';
+import { aplicarMarca } from './marca';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -105,6 +107,15 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   const [materiales, setMateriales] = useState([]);
   const [eligiendoFabricado, setEligiendoFabricado] = useState(null);
   const [perdidas, setPerdidas] = useState([]);
+  // Marca propia del negocio (Equipo → Configuración → Marca y apariencia)
+  const [marca, setMarca] = useState(null);
+  const marcaActiva = marca?.activa ? marca : null;
+  useEffect(() => onSnapshot(doc(db, 'negocios', negocioId, 'config', 'marca'),
+    (s) => setMarca(s.exists() ? s.data() : null),
+    () => setMarca(null)
+  ), [negocioId]);
+  useEffect(() => { aplicarMarca(marcaActiva); }, [marcaActiva]);
+  useEffect(() => () => aplicarMarca(null), []);
   const fabricadosPorId = Object.fromEntries(fabricados.map(p => [p.id, p]));
   const materialesPorId = Object.fromEntries(materiales.map(m => [m.id, m]));
   const [ventas, setVentas] = useState([]);
@@ -1521,10 +1532,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       `}</style>
 
       {/* Encabezado Principal */}
-      <header className="marca-cabecera mb-6 rounded-2xl print-card print:mb-4" style={{ backgroundColor: colorNegocio(negocio?.color) }}>
+      <header className="marca-cabecera mb-6 rounded-2xl print-card print:mb-4" style={marcaActiva ? undefined : { backgroundColor: colorNegocio(negocio?.color) }}>
         <div className="flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <img src="/marca/sello.svg" alt="Tazón para Dos" className="h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 shrink-0" />
+            <img src={marcaActiva?.logo || '/marca/sello.svg'} alt={negocio?.nombre || 'Tazón para Dos'} className="h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 shrink-0 rounded-full object-contain" />
             <div className="min-w-0">
               <p className="marca-eyebrow text-tinta/80 hidden sm:block">Ventas y finanzas</p>
               <h1 className="sr-only">{negocio?.nombre}</h1>
@@ -1606,7 +1617,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         </div>
 
         {/* Navegación principal */}
-        <nav className="no-print mx-2 sm:mx-3 mb-2 sm:mb-3 flex flex-nowrap items-center justify-start md:justify-center gap-1 overflow-x-auto sin-scrollbar bg-papel p-1.5 rounded-2xl border-2 border-tinta">
+        <nav className="no-print mx-2 sm:mx-3 mb-2 sm:mb-3 flex flex-nowrap items-center justify-start md:justify-center gap-1 overflow-x-auto sin-scrollbar bg-papel p-1.5 rounded-2xl border-2 border-tinta barra-pestanas">
           <button onClick={() => setPestana('ventas')} className={`pestana ${pestana === 'ventas' ? 'pestana-activa' : ''}`}>
             <ShoppingCart size={16} /> Ventas
           </button>
@@ -1663,7 +1674,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               Historial de cambios
             </MenuItem>
             <MenuSeparador />
-            <MenuItem icono={<Settings size={16} />} onClick={() => setPestana('configuracion')} activo={pestana === 'configuracion'} detalle="Nombre, color, reparto y Telegram">
+            <MenuItem icono={<Settings size={16} />} onClick={() => setPestana('configuracion')} activo={pestana === 'configuracion'} detalle="Nombre, reparto, Telegram y marca">
               Configuración del negocio
             </MenuItem>
           </MenuDesplegable>
@@ -1685,7 +1696,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       {pestana === 'socios' && <Socios usuario={usuario} negocioId={negocioId} negocio={negocio} />}
       {pestana === 'historial' && <Historial negocioId={negocioId} incluirAntiguo={negocioId === ID_TAZON} />}
       {pestana === 'configuracion' && (
-        <ConfigNegocio negocioId={negocioId} negocio={negocio} esTitular={puede('socios') && miembro?.rol === 'titular'} operacion={operacion} />
+        <div className="space-y-6">
+          <ConfigNegocio negocioId={negocioId} negocio={negocio} esTitular={puede('socios') && miembro?.rol === 'titular'} operacion={operacion} />
+          <ConfigMarca negocioId={negocioId} negocio={negocio} marca={marca} esTitular={miembro?.rol === 'titular'} operacion={operacion} />
+        </div>
       )}
       {eligiendoFabricado && (
         <SelectorFabricado
@@ -1762,12 +1776,12 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               </div>
 
               {carrito.length === 0 ? (
-                <div className="text-center py-8 px-4 rounded-xl bg-crema/60 border-[1.5px] border-dashed border-[#E2D9C8]">
-                  <img src="/marca/mascota.svg" alt="" className="h-12 mx-auto mb-2 opacity-40" />
+                <div className="text-center py-8 px-4 rounded-xl bg-crema/60 border-[1.5px] border-dashed border-linea">
+                  <img src={marcaActiva?.logo || '/marca/mascota.svg'} alt="" className="h-12 mx-auto mb-2 opacity-40" />
                   <p className="text-sm text-gris-calido">Toca un producto para agregarlo al pedido.</p>
                 </div>
               ) : (
-                <ul className="divide-y divide-[#F0EADF] -mx-1">
+                <ul className="divide-y divide-linea-suave -mx-1">
                   {carrito.map(item => {
                     const prod = productos.find(p => p.id === item.productoId);
                     const variantes = prod ? [...new Set(obtenerLotesNorm(prod).map(l => l.variante))] : [];
@@ -1850,7 +1864,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                     ))}
                   </div>
                   {formVenta.medioPago === 'Tarjeta' && cobroTarjeta && (
-                    <div className="mt-2 rounded-xl border-[1.5px] border-[#E9E1D2] bg-crema/50 p-3 text-xs space-y-1">
+                    <div className="mt-2 rounded-xl border-[1.5px] border-linea bg-crema/50 p-3 text-xs space-y-1">
                       {datafonos.length > 1 && (
                         <select value={datafonoActivo.id} onChange={(e) => setDatafonoId(e.target.value)} className="campo !py-1.5 !text-xs mb-2" title="Datáfono">
                           {datafonos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
@@ -2056,7 +2070,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
             <>
               <button
                 onClick={() => setPedidoAbierto(true)}
-                className="fixed z-30 bottom-4 right-4 left-4 sm:left-auto btn btn-oscuro !py-3 !px-5 !text-base !shadow-[4px_4px_0_#F8CB67] hover:!shadow-[5px_5px_0_#F8CB67] no-print"
+                className="fixed z-30 bottom-4 right-4 left-4 sm:left-auto btn btn-oscuro !py-3 !px-5 !text-base !shadow-[4px_4px_0_var(--color-sol)] hover:!shadow-[5px_5px_0_var(--color-sol)] no-print"
                 aria-label="Abrir el pedido"
               >
                 <ShoppingCart size={18} />
@@ -2076,7 +2090,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                   <div className="absolute inset-0 bg-tinta/50" onClick={() => setPedidoAbierto(false)} />
                   <div className="ventana-pedido absolute inset-x-0 bottom-0 max-h-[90dvh] sm:inset-y-3 sm:right-3 sm:left-auto sm:w-[420px] sm:max-h-none overflow-y-auto overscroll-contain bg-white border-2 border-tinta rounded-t-[1.5rem] sm:rounded-[1.25rem] shadow-[0_-6px_0_rgba(40,32,59,0.12)] sm:shadow-[6px_6px_0_rgba(40,32,59,0.25)] p-4 md:p-5">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="sm:hidden mx-auto h-1.5 w-12 rounded-full bg-[#E2D9C8]" aria-hidden="true" />
+                      <span className="sm:hidden mx-auto h-1.5 w-12 rounded-full bg-linea" aria-hidden="true" />
                       <button onClick={() => setPedidoAbierto(false)} className="btn-icono ml-auto" aria-label="Cerrar el pedido" title="Cerrar">
                         <X size={18} />
                       </button>
@@ -2093,7 +2107,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
           {/* ---------- Historial ---------- */}
           <div className="panel overflow-hidden mb-6">
-            <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2] flex flex-wrap gap-3 justify-between items-center">
+            <div className="p-4 md:p-5 border-b-[1.5px] border-linea flex flex-wrap gap-3 justify-between items-center">
               <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><ClipboardList size={18} /> Historial de ventas</h2>
               <div className="flex flex-wrap items-center gap-2 no-print">
                 <div className="segmentado !flex-nowrap">
@@ -2253,7 +2267,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
           {/* Cuentas de clientes */}
           <div className="panel overflow-hidden">
-            <div className="p-4 border-b-[1.5px] border-[#E9E1D2] flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+            <div className="p-4 border-b-[1.5px] border-linea flex flex-col md:flex-row md:justify-between md:items-center gap-3">
               <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <HandCoins size={18} /> Cuentas de Clientes y Fiados
               </h2>
@@ -2600,7 +2614,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           </Plegable>
 
           <div className="panel overflow-hidden">
-            <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2]">
+            <div className="p-4 md:p-5 border-b-[1.5px] border-linea">
               <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><ClipboardList size={18} /> Historial de gastos</h2>
             </div>
             <div className="overflow-x-auto">
@@ -2867,7 +2881,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           </Plegable>
 
           <div className="panel overflow-hidden">
-            <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2]">
+            <div className="p-4 md:p-5 border-b-[1.5px] border-linea">
               <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
                 <Boxes size={18} /> Inventario por lotes
                 <span className="pastilla pastilla-info" title="Se vende primero lo que vence antes">FEFO</span>

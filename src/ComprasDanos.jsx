@@ -136,7 +136,7 @@ export function CompraMateriales({ materiales, puedeEditar, operacion, col, docN
               <input value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="campo" placeholder="Ej. Papelería del centro" />
             </div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={comoGasto} onChange={(e) => setComoGasto(e.target.checked)} className="accent-[#28203B]" />
+              <input type="checkbox" checked={comoGasto} onChange={(e) => setComoGasto(e.target.checked)} className="accent-tinta" />
               Registrarlo también como gasto (Finanzas)
             </label>
           </div>
@@ -304,7 +304,7 @@ export function PerdidasFinanzas({ perdidas, puedeBorrar, operacion, docN }) {
 
   return (
     <div className="panel overflow-hidden">
-      <div className="p-4 md:p-5 border-b-[1.5px] border-[#E9E1D2] flex flex-wrap items-center justify-between gap-3">
+      <div className="p-4 md:p-5 border-b-[1.5px] border-linea flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><AlertOctagon size={18} /> Pérdidas por daños</h2>
         <div className="flex gap-2 text-xs">
           <span className="pastilla pastilla-peligro">Este mes {dinero(totalMes)} · {delMes.length}</span>
