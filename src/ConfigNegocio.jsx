@@ -14,7 +14,8 @@ export default function ConfigNegocio({ negocioId, negocio, esTitular, operacion
     nombre: negocio?.nombre || '',
     color: negocio?.color || 'turquesa',
     porcentajeAhorro: negocio?.porcentajeAhorro ?? 15,
-    numeroSocios: negocio?.numeroSocios ?? 3
+    numeroSocios: negocio?.numeroSocios ?? 3,
+    fabricacion: !!negocio?.fabricacion
   });
   const [estadoGeneral, setEstadoGeneral] = useState(null);
   const [guardando, setGuardando] = useState('');
@@ -43,13 +44,14 @@ export default function ConfigNegocio({ negocioId, negocio, esTitular, operacion
     setEstadoGeneral(null);
     const nombre = form.nombre.trim().replace(/\s+/g, ' ');
     if (nombre.length < 2) return setEstadoGeneral({ tipo: 'error', texto: 'Escribe el nombre del negocio.' });
-    const cambios = { nombre, color: form.color, porcentajeAhorro: ahorro, numeroSocios: socios };
-    const antes = { nombre: negocio.nombre, color: negocio.color, porcentajeAhorro: negocio.porcentajeAhorro, numeroSocios: negocio.numeroSocios };
+    const cambios = { nombre, color: form.color, porcentajeAhorro: ahorro, numeroSocios: socios, fabricacion: form.fabricacion };
+    const antes = { nombre: negocio.nombre, color: negocio.color, porcentajeAhorro: negocio.porcentajeAhorro, numeroSocios: negocio.numeroSocios, fabricacion: !!negocio.fabricacion };
     const detalle = [
       antes.nombre !== nombre && `nombre: ${antes.nombre} → ${nombre}`,
       antes.porcentajeAhorro !== ahorro && `ahorro: ${antes.porcentajeAhorro} % → ${ahorro} %`,
       antes.numeroSocios !== socios && `socios para el salario: ${antes.numeroSocios} → ${socios}`,
-      antes.color !== form.color && `color: ${antes.color} → ${form.color}`
+      antes.color !== form.color && `color: ${antes.color} → ${form.color}`,
+      antes.fabricacion !== form.fabricacion && `fabricación ${form.fabricacion ? 'activada' : 'desactivada'}`
     ].filter(Boolean).join(' · ');
     if (!detalle) return setEstadoGeneral({ tipo: 'ok', texto: 'No hay cambios para guardar.' });
 
@@ -155,6 +157,16 @@ export default function ConfigNegocio({ negocioId, negocio, esTitular, operacion
                 <div><p className="text-xs text-gris-calido">Por socio (÷ {socios})</p><p className="kpi-valor text-lg">{dinero(ejemplo * (100 - ahorro) / 100 / socios)}</p></div>
               </div>
             </div>
+
+            <hr className="separador !my-2" />
+
+            <label className="flex items-start gap-3 rounded-xl border-[1.5px] border-[#E9E1D2] p-4 cursor-pointer">
+              <input type="checkbox" checked={form.fabricacion} onChange={(e) => setForm({ ...form, fabricacion: e.target.checked })} className="mt-1 accent-[#28203B]" />
+              <span>
+                <span className="font-semibold text-tinta text-sm">Fabricación: materiales y recetas</span>
+                <span className="block text-xs text-gris-calido">Para productos que se arman con piezas (botones, camisetas estampadas...). Agrega Materiales y Productos fabricados al menú Inventario.</span>
+              </span>
+            </label>
 
             <Mensaje estado={estadoGeneral} />
             {esTitular && (

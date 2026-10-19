@@ -6,7 +6,7 @@ import { db } from './firebase';
 const PASO = 100;
 
 const NOMBRES_COLECCION = {
-  ventas: 'Venta', productos: 'Producto', clientes: 'Cliente', gastos: 'Gasto',
+  ventas: 'Venta', productos: 'Producto', clientes: 'Cliente', gastos: 'Gasto', materiales: 'Material',
   categorias: 'Categoría', caja_base: 'Caja', admins: 'Socio'
 };
 

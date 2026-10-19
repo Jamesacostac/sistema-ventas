@@ -10,6 +10,8 @@ import ConfigNegocio from './ConfigNegocio';
 import { colorNegocio, ID_TAZON, FormNuevoNegocio } from './negociosComun';
 import { useConfigDatafono, calcularCobroTarjeta, desglose, DATAFONO_POR_DEFECTO } from './Datafono';
 import Socios from './Socios';
+import Materiales from './Materiales';
+import ProductosFabricados from './ProductosFabricados';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
 import { MenuDesplegable, MenuItem, MenuSeparador, MenuTitulo, Plegable, usePantalla } from './ui';
@@ -22,7 +24,7 @@ import {
   CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
   HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
-  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X, Settings, PlusCircle
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X, Settings, PlusCircle, Layers, Hammer
 } from 'lucide-react';
 
 // Fecha AAAA-MM-DD con la hora de Colombia. Antes se usaba la hora UTC y lo que se
@@ -94,6 +96,9 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   const avisarTelegram = (texto) => enviarMensajeTelegram(`🏪 <b>${negocio?.nombre || ''}</b>\n` + texto, negocioId);
   const [pestana, setPestana] = useState('ventas');
   const [productos, setProductos] = useState([]);
+  // Productos que se arman con materiales (Noguri). Van aparte: no usan lotes ni stock propio.
+  const [fabricados, setFabricados] = useState([]);
+  const [materiales, setMateriales] = useState([]);
   const [ventas, setVentas] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [gastos, setGastos] = useState([]);
@@ -182,7 +187,13 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     };
 
     const unsubProductos = onSnapshot(col('productos'), (snapshot) => {
-      setProductos(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      const lista = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setProductos(lista.filter(p => !p.fabricado));
+      setFabricados(lista.filter(p => p.fabricado));
+    }, manejarError);
+
+    const unsubMateriales = onSnapshot(col('materiales'), (snapshot) => {
+      setMateriales(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     }, manejarError);
 
     const unsubVentas = onSnapshot(col('ventas'), (snapshot) => {
@@ -226,6 +237,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
     return () => {
       unsubProductos();
+      unsubMateriales();
       unsubVentas();
       unsubCategorias();
       unsubGastos();
@@ -1543,7 +1555,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           <MenuDesplegable
             etiqueta="Inventario"
             icono={<Package size={16} />}
-            activo={['inventario', 'categorias', 'catalogo', 'etiquetas'].includes(pestana)}
+            activo={['inventario', 'categorias', 'catalogo', 'etiquetas', 'materiales', 'fabricados'].includes(pestana)}
           >
             <MenuItem icono={<Boxes size={16} />} onClick={() => setPestana('inventario')} activo={pestana === 'inventario'} detalle="Stock por lotes y vencimientos">
               Productos y lotes
@@ -1554,6 +1566,18 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
             <MenuItem icono={<Tags size={16} />} onClick={() => setPestana('etiquetas')} activo={pestana === 'etiquetas'} detalle="Imprimir códigos de barras">
               Etiquetas
             </MenuItem>
+            {negocio?.fabricacion && (
+              <>
+                <MenuSeparador />
+                <MenuTitulo>Fabricación</MenuTitulo>
+                <MenuItem icono={<Layers size={16} />} onClick={() => setPestana('materiales')} activo={pestana === 'materiales'} detalle="Piezas e insumos con su costo">
+                  Materiales
+                </MenuItem>
+                <MenuItem icono={<Hammer size={16} />} onClick={() => setPestana('fabricados')} activo={pestana === 'fabricados'} detalle="Recetas, costos y precios">
+                  Productos fabricados
+                </MenuItem>
+              </>
+            )}
             <MenuSeparador />
             <MenuItem icono={<UtensilsCrossed size={16} />} onClick={() => setPestana('catalogo')} activo={pestana === 'catalogo'} detalle="Lo disponible para ofrecer">
               Carta
@@ -1598,6 +1622,21 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       {pestana === 'historial' && <Historial negocioId={negocioId} incluirAntiguo={negocioId === ID_TAZON} />}
       {pestana === 'configuracion' && (
         <ConfigNegocio negocioId={negocioId} negocio={negocio} esTitular={puede('socios') && miembro?.rol === 'titular'} operacion={operacion} />
+      )}
+      {pestana === 'materiales' && (
+        <Materiales materiales={materiales} productos={fabricados} puedeEditar={puede('inventario')} operacion={operacion} col={col} docN={docN} />
+      )}
+      {pestana === 'fabricados' && (
+        <ProductosFabricados
+          productos={[...productos, ...fabricados]}
+          materiales={materiales}
+          categorias={categorias}
+          puedeEditar={puede('inventario')}
+          operacion={operacion}
+          col={col}
+          docN={docN}
+          negocio={negocio}
+        />
       )}
       {pestana === 'etiquetas' && (
         <Suspense fallback={<p className="text-center text-gris-calido py-10">Cargando etiquetas...</p>}>

@@ -139,10 +139,10 @@ service cloud.firestore {
     match /negocios/{nid} {
       allow read: if esServidor() || miembroVerificado(nid);
       allow create, delete: if esServidor();
-      // El titular ajusta nombre, color y reparto (queda en la auditoría del negocio)
+      // El titular ajusta nombre, color, reparto y si usa fabricación (queda en la auditoría del negocio)
       allow update: if esServidor() || (
         miembroVerificado(nid) && esTitularDe(nid) && auditadoEn(nid)
-        && soloCambia(['nombre', 'color', 'porcentajeAhorro', 'numeroSocios', 'migrado'])
+        && soloCambia(['nombre', 'color', 'porcentajeAhorro', 'numeroSocios', 'migrado', 'fabricacion'])
       );
 
       match /miembros/{uid} {
@@ -181,6 +181,15 @@ service cloud.firestore {
         allow update: if escribirEn(nid, 'inventario')
           || (escribirEn(nid, 'ventas') && soloCambia(['lotes', 'stock']));
         allow delete: if eliminarEn(nid, 'inventario', 'productos', id);
+      }
+
+      // Materiales para fabricar (bases, chapas, prendas por talla...). Quien vende solo descuenta stock.
+      match /materiales/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create: if escribirEn(nid, 'inventario');
+        allow update: if escribirEn(nid, 'inventario')
+          || (escribirEn(nid, 'ventas') && soloCambia(['stock']));
+        allow delete: if eliminarEn(nid, 'inventario', 'materiales', id);
       }
 
       match /categorias/{id} {
