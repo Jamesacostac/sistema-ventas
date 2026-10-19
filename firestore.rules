@@ -179,7 +179,7 @@ service cloud.firestore {
         allow read: if miembroVerificado(nid);
         allow create: if escribirEn(nid, 'inventario');
         allow update: if escribirEn(nid, 'inventario')
-          || (escribirEn(nid, 'ventas') && soloCambia(['lotes', 'stock']));
+          || (escribirEn(nid, 'ventas') && soloCambia(['lotes', 'stock', 'listos']));
         allow delete: if eliminarEn(nid, 'inventario', 'productos', id);
       }
 

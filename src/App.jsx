@@ -12,6 +12,8 @@ import { useConfigDatafono, calcularCobroTarjeta, desglose, DATAFONO_POR_DEFECTO
 import Socios from './Socios';
 import Materiales from './Materiales';
 import ProductosFabricados from './ProductosFabricados';
+import SelectorFabricado from './SelectorFabricado';
+import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
 import { MenuDesplegable, MenuItem, MenuSeparador, MenuTitulo, Plegable, usePantalla } from './ui';
@@ -99,6 +101,9 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   // Productos que se arman con materiales (Noguri). Van aparte: no usan lotes ni stock propio.
   const [fabricados, setFabricados] = useState([]);
   const [materiales, setMateriales] = useState([]);
+  const [eligiendoFabricado, setEligiendoFabricado] = useState(null);
+  const fabricadosPorId = Object.fromEntries(fabricados.map(p => [p.id, p]));
+  const materialesPorId = Object.fromEntries(materiales.map(m => [m.id, m]));
   const [ventas, setVentas] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [gastos, setGastos] = useState([]);
@@ -642,6 +647,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     const lotesPorProducto = {};
     const ordenados = [...items].sort((a, b) => (a.variante === 'TODAS') - (b.variante === 'TODAS'));
     for (const item of ordenados) {
+      if (item.fabricado) continue;
       const prod = productos.find(p => p.id === item.productoId);
       if (!prod) return { error: `El producto "${item.nombre}" ya no existe en el inventario.` };
 
@@ -691,6 +697,29 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     return true;
   };
 
+  // Producto fabricado: cada combinación de opciones y adicionales es una línea del pedido.
+  // No se valida stock: lo que no esté listo se arma al vender (ver planificarVenta).
+  const agregarFabricado = (prod, { valores = [], adicionales = [], cantidad = 1, precio }) => {
+    if (!exigir('ventas', 'registrar ventas')) return false;
+    const extras = [...adicionales].sort();
+    const existente = carrito.find(i => i.fabricado && i.productoId === prod.id
+      && claveVariante(i.valores) === claveVariante(valores) && claveVariante(i.adicionales) === claveVariante(extras));
+    setCarrito(existente
+      ? carrito.map(i => (i === existente ? { ...i, cantidad: i.cantidad + cantidad } : i))
+      : [...carrito, {
+          key: `${prod.id}_${Date.now()}`,
+          productoId: prod.id,
+          nombre: prod.nombre,
+          fabricado: true,
+          valores,
+          adicionales: extras,
+          variante: descripcionLinea(prod, valores, extras),
+          cantidad,
+          precio: precio ?? (Number(prod.precio) || 0)
+        }]);
+    return true;
+  };
+
   // Cambia la variante/lote de una línea del pedido (si ya existe esa variante, se juntan)
   const handleCambiarVarianteItem = (key, variante) => {
     const item = carrito.find(i => i.key === key);
@@ -722,7 +751,9 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     if (carrito.length > 0 && confirm("¿Vaciar el carrito?")) setCarrito([]);
   };
 
-  const totalCarrito = carrito.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+  // Los fabricados pueden tener precio por cantidad (2 botones por $3.500)
+  const totalItem = (i) => (i.fabricado ? precioPorCantidad(fabricadosPorId[i.productoId] || {}, i.cantidad, i.precio) : i.precio * i.cantidad);
+  const totalCarrito = carrito.reduce((acc, i) => acc + totalItem(i), 0);
   const unidadesCarrito = carrito.reduce((acc, i) => acc + i.cantidad, 0);
 
   // Pago con tarjeta: se suma la tarifa del datáfono para que al negocio le llegue completo
@@ -746,6 +777,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     // Se vuelve a validar con el inventario actual por si otro socio vendió mientras tanto
     const { error, lotesPorProducto } = simularCarrito(carrito);
     if (error) return alert(`❌ ${error}`);
+    // Fabricados: qué sale de lo listo y qué materiales se gastan
+    const lineasFab = carrito.filter(i => i.fabricado);
+    const planFab = planificarVenta(lineasFab, fabricadosPorId, materialesPorId);
+    if (planFab.error) return alert(`❌ ${planFab.error}`);
 
     const nombreCliente = formVenta.cliente.trim();
     if (!formVenta.pagado && (!nombreCliente || normalizarNombre(nombreCliente) === normalizarNombre('Cliente General'))) {
@@ -779,14 +814,15 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       const clienteId = clienteRegistrado?.id || null;
 
       carrito.forEach(item => {
-        const total = item.precio * item.cantidad;
-        const costoTotal = item.costo * item.cantidad;
+        const plan = item.fabricado ? planFab.lineas[lineasFab.indexOf(item)] : null;
+        const total = totalItem(item);
+        const costoTotal = plan ? plan.costoTotal : item.costo * item.cantidad;
         op.crear(doc(col('ventas')), {
           fecha,
           cliente,
           clienteId,
           producto: item.nombre,
-          variante: item.variante === 'TODAS' ? 'Auto (FEFO)' : item.variante,
+          variante: item.fabricado ? item.variante : item.variante === 'TODAS' ? 'Auto (FEFO)' : item.variante,
           cantidad: item.cantidad,
           total,
           costoTotal,
@@ -794,7 +830,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           pagado: formVenta.pagado,
           medioPago: medioPagoFinal,
           pedidoId,
-          creadoEn
+          creadoEn,
+          ...(plan && { fabricado: true, productoId: item.productoId, deListos: plan.deListos, consumo: plan.consumo })
         });
       });
 
@@ -834,6 +871,12 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         const antes = productos.find(p => p.id === prodId);
         op.actualizar(docN('productos', prodId), { lotes, stock }, antes && { lotes: antes.lotes, stock: antes.stock });
       });
+      Object.entries(planFab.stock).forEach(([id, stock]) => {
+        op.actualizar(docN('materiales', id), { stock }, { stock: materialesPorId[id]?.stock ?? 0 });
+      });
+      Object.entries(planFab.listos).forEach(([id, listos]) => {
+        op.actualizar(docN('productos', id), { listos }, { listos: fabricadosPorId[id]?.listos || {} });
+      });
 
       await op.guardar();
 
@@ -849,6 +892,19 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           `🔔 <i>Por favor coordinar compra con proveedores.</i>`
         );
       });
+
+      // Materiales que quedaron bajo el mínimo o que hay que comprar para este pedido
+      const bajos = Object.entries(planFab.stock)
+        .map(([id, stock]) => ({ m: materialesPorId[id], stock }))
+        .filter(({ m, stock }) => Number(m?.minimo) > 0 && stock <= Number(m.minimo) && (Number(m.stock) || 0) > Number(m.minimo));
+      if (bajos.length || planFab.faltantes.length) {
+        avisarTelegram(
+          '🧰 <b>MATERIALES</b>\n' +
+          bajos.map(({ m, stock }) => `⚠️ ${m.nombre}: quedan ${Math.round(stock * 100) / 100} ${m.unidad || ''}`).join('\n') +
+          (bajos.length && planFab.faltantes.length ? '\n' : '') +
+          planFab.faltantes.map(f => `🛒 Comprar para el pedido: ${f.material.nombre} × ${Math.round(f.cantidad * 100) / 100}`).join('\n')
+        );
+      }
 
       setCarrito([]);
       setPedidoAbierto(false);
@@ -1623,6 +1679,14 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       {pestana === 'configuracion' && (
         <ConfigNegocio negocioId={negocioId} negocio={negocio} esTitular={puede('socios') && miembro?.rol === 'titular'} operacion={operacion} />
       )}
+      {eligiendoFabricado && (
+        <SelectorFabricado
+          producto={eligiendoFabricado}
+          materialesPorId={materialesPorId}
+          onCerrar={() => setEligiendoFabricado(null)}
+          onAgregar={(linea) => { if (agregarFabricado(eligiendoFabricado, linea)) setEligiendoFabricado(null); }}
+        />
+      )}
       {pestana === 'materiales' && (
         <Materiales materiales={materiales} productos={fabricados} puedeEditar={puede('inventario')} operacion={operacion} col={col} docN={docN} />
       )}
@@ -1647,7 +1711,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       {/* ==================== PESTAÑA VENTAS (punto de venta) ==================== */}
       {pestana === 'ventas' && (() => {
         // Catálogo filtrado por búsqueda y categoría
-        const categoriasVenta = [...new Set(productos.map(p => p.categoria || 'Sin categoría'))].sort((a, b) => a.localeCompare(b, 'es'));
+        const categoriasVenta = [...new Set([...productos, ...fabricados].map(p => p.categoria || 'Sin categoría'))].sort((a, b) => a.localeCompare(b, 'es'));
         const textoBusqueda = normalizarNombre(busquedaProducto);
         const catalogo = productos
           .filter(p => !categoriaVenta || (p.categoria || 'Sin categoría') === categoriaVenta)
@@ -1657,6 +1721,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
             return { ...p, enCarrito, disponible: getStockTotalProducto(p) - enCarrito };
           })
           .sort((a, b) => (b.disponible > 0) - (a.disponible > 0) || a.nombre.localeCompare(b.nombre, 'es'));
+        const catalogoFab = fabricados
+          .filter(p => !categoriaVenta || (p.categoria || 'Sin categoría') === categoriaVenta)
+          .filter(p => !textoBusqueda || normalizarNombre(p.nombre).includes(textoBusqueda))
+          .sort((a, b) => (a.categoria || '').localeCompare(b.categoria || '', 'es') || a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
 
         // Historial filtrado
         const textoVentas = normalizarNombre(busquedaVentas);
@@ -1668,6 +1736,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         const clienteSeleccionado = buscarClientePorNombre(formVenta.cliente);
         const deudaCliente = clienteSeleccionado ? (cuentasClientes.find(cc => cc.cliente.id === clienteSeleccionado.id)?.deuda || 0) : 0;
         const puedeVender = puede('ventas');
+        // Materiales que no alcanzan para lo que hay en el pedido (se compran por pedido)
+        const planPedido = planificarVenta(carrito.filter(i => i.fabricado), fabricadosPorId, materialesPorId);
 
         // Contenido del pedido (columna en PC, ventana flotante en las demás pantallas)
         const contenidoPedido = (
@@ -1694,7 +1764,9 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                       <li key={item.key} className="flex items-start gap-3 px-1 py-2.5">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold truncate">{item.nombre}</p>
-                          {variantes.length > 1 ? (
+                          {item.fabricado ? (
+                            <p className="text-[11px] text-gris-calido">{item.variante ? `${item.variante} · ` : ''}{dinero(item.precio)} c/u</p>
+                          ) : variantes.length > 1 ? (
                             <select
                               value={item.variante}
                               onChange={(e) => handleCambiarVarianteItem(item.key, e.target.value)}
@@ -1713,11 +1785,16 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                           <span>{item.cantidad}</span>
                           <button onClick={() => handleCambiarCantidadItem(item.key, item.cantidad + 1)} aria-label="Agregar uno"><Plus size={14} /></button>
                         </div>
-                        <p className="w-20 text-right text-sm font-bold shrink-0 pt-1">{dinero(item.precio * item.cantidad)}</p>
+                        <p className="w-20 text-right text-sm font-bold shrink-0 pt-1">{dinero(totalItem(item))}</p>
                       </li>
                     );
                   })}
                 </ul>
+              )}
+              {planPedido.faltantes.length > 0 && (
+                <p className="aviso aviso-atencion mt-2 !text-xs">
+                  <span>🛒 No hay en stock: {planPedido.faltantes.map(f => `${f.material.nombre} × ${Math.round(f.cantidad * 100) / 100}`).join(', ')}. Se toma como comprado por pedido.</span>
+                </p>
               )}
 
               <hr className="separador" />
@@ -1916,8 +1993,39 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                     </span>
                   </button>
                 ))}
+                {catalogoFab.map(p => {
+                  const enCarrito = carrito.filter(i => i.productoId === p.id).reduce((a, i) => a + i.cantidad, 0);
+                  const precios = variantesDe(p).map(e => precioUnitario(p, e));
+                  const desde = Math.min(...precios);
+                  const listos = Object.values(p.listos || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+                  const conOpciones = (p.opciones || []).length > 0 || (p.adicionales || []).length > 0;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => (conOpciones
+                        ? exigir('ventas', 'registrar ventas') && setEligiendoFabricado(p)
+                        : agregarFabricado(p, { cantidad: 1, precio: Number(p.precio) || 0 }))}
+                      disabled={!puedeVender}
+                      className={`producto-tile ${enCarrito > 0 ? 'producto-tile-en-carrito' : ''}`}
+                      title={conOpciones ? 'Elegir opciones' : 'Agregar al pedido'}
+                    >
+                      {enCarrito > 0 && <span className="producto-cantidad">{enCarrito}</span>}
+                      <span>
+                        <span className="block font-bold text-sm leading-snug">{p.nombre}</span>
+                        <span className="block text-[11px] text-gris-calido">{p.categoria || 'Sin categoría'}</span>
+                      </span>
+                      <span className="flex flex-wrap items-end justify-between gap-x-2 gap-y-1.5">
+                        <span className="kpi-valor text-lg leading-none">
+                          {Math.max(...precios) !== desde && <span className="block text-[10px] font-normal text-gris-calido">desde</span>}
+                          {dinero(desde)}
+                        </span>
+                        <span className={`pastilla !text-[10px] ${listos > 0 ? 'pastilla-ok' : 'pastilla-neutra'}`}>{listos > 0 ? `${listos} listos` : 'Se arma'}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-              {catalogo.length === 0 && (
+              {catalogo.length === 0 && catalogoFab.length === 0 && (
                 <div className="text-center py-10 text-sm text-gris-calido">
                   <PackageX size={28} className="mx-auto mb-2 opacity-60" />
                   {productos.length === 0 ? 'Todavía no hay productos. Agrégalos en Inventario.' : 'Ningún producto coincide con la búsqueda.'}

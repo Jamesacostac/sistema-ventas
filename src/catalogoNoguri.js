@@ -1,6 +1,7 @@
 // Catálogo inicial de Noguri, con los costos y el stock de la hoja "Inventario" (Drive) y los precios vigentes.
 // costo = comprado para tener en stock (al por mayor); costoPedido = comprado cuando llega el pedido (al detal).
 // Las hojas de imágenes y stickers ya incluyen la tinta. El stock es el de la hoja (puede estar desactualizado).
+// listos = productos ya hechos según la hoja (66 stickers de 55 mm y 20 hojas completas).
 
 const TALLAS = ['S', 'M', 'L', 'XL'];
 const TALLAS_GRANDES_CAMISETA = ['2XL'];
@@ -82,8 +83,9 @@ const prenda = (clave, nombre, categoria, precio, recargoGrandes = 8000) => {
   };
 };
 
-const sticker = (nombre, hoja, rinde, precio, paquete) => ({
+const sticker = (nombre, hoja, rinde, precio, paquete, listos = 0) => ({
   nombre,
+  listos,
   categoria: 'Stickers',
   precio,
   preciosCantidad: paquete ? [paquete] : [],
@@ -107,9 +109,9 @@ const productos = [
       ]
     }]
   },
-  sticker('Sticker 55 mm mate', 'hoja-mate', 15, 1000, { cantidad: 6, precio: 5000 }),
+  sticker('Sticker 55 mm mate', 'hoja-mate', 15, 1000, { cantidad: 6, precio: 5000 }, 66),
   sticker('Sticker 28 mm mate', 'hoja-mate', 30, 300, { cantidad: 2, precio: 500 }),
-  sticker('Hoja completa de stickers mate', 'hoja-mate', 1, 10000),
+  sticker('Hoja completa de stickers mate', 'hoja-mate', 1, 10000, null, 20),
   sticker('Sticker 55 mm fotográfico', 'hoja-foto', 15, 2000, { cantidad: 3, precio: 5000 }),
   sticker('Sticker 28 mm fotográfico', 'hoja-foto', 30, 600),
   sticker('Hoja completa de stickers fotográficos', 'hoja-foto', 1, 15000),

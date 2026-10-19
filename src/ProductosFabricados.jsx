@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { doc } from 'firebase/firestore';
 import {
-  Hammer, Plus, Trash2, Save, X, Edit2, ChevronDown, ChevronUp, AlertTriangle, Calculator, Sparkles, Layers
+  Hammer, Plus, Trash2, Save, X, Edit2, ChevronDown, ChevronUp, AlertTriangle, Calculator, Sparkles, Layers, PackageCheck
 } from 'lucide-react';
 import {
   costoReceta, faltantesReceta, variantesDe, nombreVariante, recetaDe, precioUnitario, precioPorCantidad,
-  precioSugerido, gananciaDe, leerCantidad, mostrarCantidad, nuevoId, compararNombres, GANANCIA_POR_DEFECTO
+  precioSugerido, gananciaDe, leerCantidad, mostrarCantidad, nuevoId, compararNombres, GANANCIA_POR_DEFECTO,
+  planificarVenta, alcanzaPara, claveVariante
 } from './fabricacion';
 import { CATALOGO_NOGURI } from './catalogoNoguri';
 
@@ -293,6 +294,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
           opciones: (p.opciones || []).map(o => ({ id: nuevoId(), nombre: o.nombre, valores: o.valores.map(v => ({ id: nuevoId(), nombre: v.nombre, precioExtra: v.precioExtra, receta: receta(v.receta) })) })),
           adicionales: (p.adicionales || []).map(a => ({ id: nuevoId(), nombre: a.nombre, precio: a.precio, receta: receta(a.receta) })),
           preciosCantidad: p.preciosCantidad || [],
+          listos: p.listos ? { [claveVariante([])]: p.listos } : {},
           costo: 0,
           fabricado: true,
           codigos: [],
@@ -518,6 +520,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
                       </p>
                     )}
                     <TablaCostos producto={p} materialesPorId={materialesPorId} />
+                    <ListosProducto producto={p} materialesPorId={materialesPorId} puedeEditar={puedeEditar} operacion={operacion} docN={docN} />
                   </div>
                 )}
               </div>
@@ -525,6 +528,98 @@ export default function ProductosFabricados({ productos, materiales, categorias,
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- Listos para vender: lo que ya está hecho ----------
+
+function ListosProducto({ producto, materialesPorId, puedeEditar, operacion, docN }) {
+  const variantes = variantesDe(producto).map(eleccion => {
+    const valores = eleccion.map(e => e.valor.id);
+    return { valores, clave: claveVariante(valores), nombre: nombreVariante(eleccion) || producto.nombre };
+  });
+  const [indice, setIndice] = useState(0);
+  const [cantidad, setCantidad] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [estado, setEstado] = useState(null);
+  const elegida = variantes[indice] || variantes[0];
+  const listos = (clave) => Math.max(0, Number(producto.listos?.[clave]) || 0);
+  const n = Math.round(num(cantidad));
+  const detalleVariante = elegida.nombre !== producto.nombre ? ` (${elegida.nombre})` : '';
+
+  // Armar por adelantado: gasta los materiales y suma a los listos
+  const armar = async () => {
+    if (!puedeEditar || !(n > 0)) return;
+    const plan = planificarVenta(
+      [{ productoId: producto.id, nombre: producto.nombre, valores: elegida.valores, adicionales: [], cantidad: n }],
+      { [producto.id]: { ...producto, listos: {} } },
+      materialesPorId
+    );
+    if (plan.faltantes.length && !confirm(`No alcanzan: ${plan.faltantes.map(f => `${f.material.nombre} (faltan ${Math.round(f.cantidad * 100) / 100})`).join(', ')}.\n\n¿Registrarlo igual? Esos materiales quedarán en 0.`)) return;
+    setGuardando(true);
+    setEstado(null);
+    try {
+      const op = operacion('Productos armados', `${n} × ${producto.nombre}${detalleVariante} — costo ${dinero(plan.lineas[0].costoTotal)}`);
+      Object.entries(plan.stock).forEach(([id, stock]) => op.actualizar(docN('materiales', id), { stock }, { stock: materialesPorId[id]?.stock ?? 0 }));
+      op.actualizar(docN('productos', producto.id), { listos: { ...(producto.listos || {}), [elegida.clave]: listos(elegida.clave) + n } }, { listos: producto.listos || {} });
+      await op.guardar();
+      setCantidad('');
+      setEstado({ tipo: 'ok', texto: `Listo: ${n} armado(s). Se descontaron los materiales.` });
+    } catch (err) {
+      setEstado({ tipo: 'error', texto: 'No se pudo guardar: ' + err.message });
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  // Corregir el conteo (inventario físico): no toca los materiales
+  const corregir = async () => {
+    if (!puedeEditar || cantidad === '' || n < 0) return;
+    setGuardando(true);
+    setEstado(null);
+    try {
+      const op = operacion('Listos corregidos', `${producto.nombre}${detalleVariante}: ${listos(elegida.clave)} → ${n}`);
+      op.actualizar(docN('productos', producto.id), { listos: { ...(producto.listos || {}), [elegida.clave]: n } }, { listos: producto.listos || {} });
+      await op.guardar();
+      setCantidad('');
+      setEstado({ tipo: 'ok', texto: 'Cantidad corregida.' });
+    } catch (err) {
+      setEstado({ tipo: 'error', texto: 'No se pudo guardar: ' + err.message });
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl bg-crema/60 p-3 md:p-4 space-y-3">
+      <div>
+        <h4 className="font-bold text-tinta text-sm flex items-center gap-2"><PackageCheck size={16} /> Listos para vender</h4>
+        <p className="text-xs text-gris-calido">Lo ya hecho se vende primero. Lo demás se arma al vender y descuenta materiales.</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {variantes.map(v => {
+          const alcanza = alcanzaPara(producto, v.valores, materialesPorId);
+          return (
+            <span key={v.clave} className={`pastilla ${listos(v.clave) > 0 ? 'pastilla-ok' : 'pastilla-neutra'}`}>
+              {variantes.length > 1 ? `${v.nombre}: ` : ''}{listos(v.clave)} listo(s){alcanza !== null ? ` · alcanza para ${alcanza}` : ''}
+            </span>
+          );
+        })}
+      </div>
+      {puedeEditar && (
+        <div className="flex flex-wrap items-center gap-2">
+          {variantes.length > 1 && (
+            <select value={indice} onChange={(e) => setIndice(Number(e.target.value))} className="campo !w-auto">
+              {variantes.map((v, i) => <option key={v.clave} value={i}>{v.nombre}</option>)}
+            </select>
+          )}
+          <input type="number" min="0" step="1" value={cantidad} onChange={(e) => setCantidad(e.target.value)} className="campo !w-24 text-right" placeholder="Cant." />
+          <button onClick={armar} disabled={guardando || !(n > 0)} className="btn btn-oscuro btn-sm"><Hammer size={14} /> Armar</button>
+          <button onClick={corregir} disabled={guardando || cantidad === ''} className="btn btn-claro btn-sm" title="Fijar cuántos hay (conteo físico), sin tocar materiales">Corregir conteo</button>
+        </div>
+      )}
+      {estado && <p className={`aviso ${estado.tipo === 'error' ? 'aviso-error' : 'aviso-ok'} !text-xs`}>{estado.texto}</p>}
     </div>
   );
 }

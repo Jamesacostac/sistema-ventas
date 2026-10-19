@@ -110,3 +110,96 @@ export const nuevoId = () => Math.random().toString(36).slice(2, 10);
 const ORDEN_TALLAS = { XXS: 1, XS: 2, S: 3, M: 4, L: 5, XL: 6, '2XL': 7, XXL: 7, '3XL': 8, '4XL': 9 };
 const claveOrden = (nombre) => String(nombre || '').replace(/\b(XXS|XS|S|M|L|XL|2XL|XXL|3XL|4XL)$/i, (t) => `~${ORDEN_TALLAS[t.toUpperCase()]}`);
 export const compararNombres = (a, b) => claveOrden(a).localeCompare(claveOrden(b), 'es', { numeric: true });
+
+// ---------- Venta de productos fabricados ----------
+//
+// Una línea del pedido: { productoId, valores: [idValor por opción], adicionales: [idAdicional], cantidad }.
+// "listos" del producto: { [claveVariante]: cantidad } = lo que ya está hecho y se vende sin gastar materiales.
+
+// Clave de la variante dentro de "listos" (Firestore no admite claves vacías)
+export const claveVariante = (valores = []) => (valores.length ? valores.join('|') : 'unica');
+
+export const eleccionDe = (producto, valores = []) =>
+  (producto.opciones || []).map((opcion, i) => {
+    const valor = opcion.valores?.find(v => v.id === valores[i]) || opcion.valores?.[0];
+    return valor ? { opcion, valor } : null;
+  }).filter(Boolean);
+
+export const adicionalesDe = (producto, ids = []) => (producto.adicionales || []).filter(a => ids.includes(a.id));
+
+export const descripcionLinea = (producto, valores, adicionales) =>
+  [nombreVariante(eleccionDe(producto, valores)), ...adicionalesDe(producto, adicionales).map(a => `+ ${a.nombre}`)].filter(Boolean).join(' · ');
+
+const redondear4 = (n) => Math.round(n * 10000) / 10000;
+
+/**
+ * Simula la venta de las líneas fabricadas del pedido: primero se usan los listos de esa variante
+ * y lo demás se fabrica gastando materiales. Si un material no alcanza, la diferencia se toma como
+ * comprada por pedido (con su costo por pedido) y el stock queda en 0.
+ * Devuelve por línea { deListos, fabricadas, costoTotal, consumo } y el estado final de stock y listos.
+ */
+export const planificarVenta = (lineas, productosPorId, materialesPorId) => {
+  const stock = Object.fromEntries(Object.values(materialesPorId).map(m => [m.id, Number(m.stock) || 0]));
+  const listos = {};
+  const faltantes = {}; // materialId → cantidad que no había en stock
+  const materialesTocados = new Set();
+  const productosTocados = new Set();
+
+  const resultado = lineas.map(linea => {
+    const p = productosPorId[linea.productoId];
+    if (!p) return { error: `El producto "${linea.nombre}" ya no existe.` };
+    const clave = claveVariante(linea.valores);
+    listos[p.id] ??= { ...(p.listos || {}) };
+    const hayListos = Math.max(0, Number(listos[p.id][clave]) || 0);
+    const deListos = Math.min(hayListos, linea.cantidad);
+    if (deListos > 0) {
+      listos[p.id][clave] = hayListos - deListos;
+      productosTocados.add(p.id);
+    }
+    const fabricadas = linea.cantidad - deListos;
+    const eleccion = eleccionDe(p, linea.valores);
+    const extras = adicionalesDe(p, linea.adicionales);
+
+    // Lo hecho de antemano ya gastó sus materiales; los adicionales siempre se hacen al vender
+    const recetaFabricar = recetaDe(p, eleccion, extras);
+    const recetaListos = extras.flatMap(a => a.receta || []);
+    const consumo = {};
+    const sumar = (receta, veces) => receta.forEach(l => {
+      if (!materialesPorId[l.materialId] || !(Number(l.cantidad) > 0) || veces <= 0) return;
+      consumo[l.materialId] = (consumo[l.materialId] || 0) + Number(l.cantidad) * veces;
+    });
+    sumar(recetaFabricar, fabricadas);
+    sumar(recetaListos, deListos);
+
+    let costoTotal = costoReceta(recetaDe(p, eleccion), materialesPorId) * deListos;
+    const detalle = Object.entries(consumo).map(([materialId, cantidad]) => {
+      const m = materialesPorId[materialId];
+      const deStock = Math.max(0, Math.min(stock[materialId], cantidad));
+      const porPedido = redondear4(cantidad - deStock);
+      stock[materialId] = redondear4(stock[materialId] - deStock);
+      materialesTocados.add(materialId);
+      if (porPedido > 0) faltantes[materialId] = (faltantes[materialId] || 0) + porPedido;
+      costoTotal += deStock * (Number(m.costo) || 0) + porPedido * (Number(m.costoPedido) > 0 ? Number(m.costoPedido) : Number(m.costo) || 0);
+      return { materialId, nombre: m.nombre, cantidad: redondear4(cantidad), porPedido };
+    });
+    return { deListos, fabricadas, costoTotal: Math.round(costoTotal), consumo: detalle };
+  });
+
+  const error = resultado.find(r => r.error)?.error;
+  return {
+    error,
+    lineas: resultado,
+    stock: Object.fromEntries([...materialesTocados].map(id => [id, stock[id]])),
+    listos: Object.fromEntries([...productosTocados].map(id => [id, listos[id]])),
+    faltantes: Object.entries(faltantes).map(([id, cantidad]) => ({ material: materialesPorId[id], cantidad: redondear4(cantidad) }))
+  };
+};
+
+// Cuántas unidades de una variante alcanzan a fabricarse con el stock de materiales
+export const alcanzaPara = (producto, valores, materialesPorId) => {
+  const receta = recetaDe(producto, eleccionDe(producto, valores));
+  const porMaterial = {};
+  receta.forEach(l => { if (Number(l.cantidad) > 0) porMaterial[l.materialId] = (porMaterial[l.materialId] || 0) + Number(l.cantidad); });
+  const limites = Object.entries(porMaterial).map(([id, cant]) => Math.floor((Number(materialesPorId[id]?.stock) || 0) / cant + 1e-9));
+  return limites.length ? Math.max(0, Math.min(...limites)) : null;
+};
