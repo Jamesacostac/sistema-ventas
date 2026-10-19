@@ -32,9 +32,12 @@ export default function GananciaProductos({ ventas, perdidas = [] }) {
   const [orden, setOrden] = useState('ganancia');
   const [abierto, setAbierto] = useState(null);
 
-  const { filas, totales, totalPerdidas } = useMemo(() => {
+  const { filas, totales, totalPerdidas, totalStaff } = useMemo(() => {
     const desde = PERIODOS.find(p => p.id === periodo).desde();
-    const lista = ventas.filter(v => !v.esRecargo && (!desde || (v.fecha || '') >= desde));
+    const enPeriodo = ventas.filter(v => !v.esRecargo && (!desde || (v.fecha || '') >= desde));
+    const lista = enPeriodo.filter(v => !v.staff);
+    // Lo que tomó el staff no es venta: se resta aparte, por su costo
+    const totalStaff = enPeriodo.filter(v => v.staff).reduce((s, v) => s + (Number(v.costoTotal) || 0), 0);
     const porProducto = {};
     lista.forEach(v => {
       const fila = acumular(porProducto, v.producto || 'Sin nombre', v);
@@ -46,7 +49,7 @@ export default function GananciaProductos({ ventas, perdidas = [] }) {
     const filas = Object.values(porProducto);
     const totales = filas.reduce((t, f) => ({ unidades: t.unidades + f.unidades, ventas: t.ventas + f.ventas, costo: t.costo + f.costo }), { unidades: 0, ventas: 0, costo: 0 });
     const totalPerdidas = perdidas.filter(p => !desde || (p.fecha || '') >= desde).reduce((s, p) => s + (Number(p.valor) || 0), 0);
-    return { filas, totales, totalPerdidas };
+    return { filas, totales, totalPerdidas, totalStaff };
   }, [ventas, perdidas, periodo]);
 
   const ganancia = (f) => f.ventas - f.costo;
@@ -64,7 +67,7 @@ export default function GananciaProductos({ ventas, perdidas = [] }) {
       <div className="p-4 md:p-5 border-b-[1.5px] border-linea flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><BarChart3 size={18} /> Ganancia por producto</h2>
-          <p className="text-xs text-gris-calido mt-1">Ventas pagadas y fiadas, también las de cajas ya cerradas.</p>
+          <p className="text-xs text-gris-calido mt-1">Ventas pagadas y fiadas, también las de cajas ya cerradas. Lo que tomó el staff se resta aparte.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <select value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="campo !w-auto !py-1.5 text-sm">
@@ -83,9 +86,13 @@ export default function GananciaProductos({ ventas, perdidas = [] }) {
         <div><p className="kpi-etiqueta text-gris-calido">Costo</p><p className="kpi-valor text-xl">{dinero(totales.costo)}</p></div>
         <div><p className="kpi-etiqueta text-gris-calido">Ganancia</p><p className="kpi-valor text-xl text-emerald-700">{dinero(gananciaTotal)}</p><p className="text-[11px] text-gris-calido">{pct(margen(totales))} sobre el costo</p></div>
         <div>
-          <p className="kpi-etiqueta text-gris-calido">Menos pérdidas</p>
-          <p className={`kpi-valor text-xl ${totalPerdidas ? 'text-[#B23A50]' : ''}`}>{dinero(gananciaTotal - totalPerdidas)}</p>
-          <p className="text-[11px] text-gris-calido">{totalPerdidas ? `Daños: ${dinero(totalPerdidas)}` : 'Sin daños en el periodo'}</p>
+          <p className="kpi-etiqueta text-gris-calido">Menos daños y staff</p>
+          <p className={`kpi-valor text-xl ${totalPerdidas + totalStaff ? 'text-[#B23A50]' : ''}`}>{dinero(gananciaTotal - totalPerdidas - totalStaff)}</p>
+          <p className="text-[11px] text-gris-calido">
+            {totalPerdidas || totalStaff
+              ? [totalPerdidas && `Daños y pruebas: ${dinero(totalPerdidas)}`, totalStaff && `Staff: ${dinero(totalStaff)}`].filter(Boolean).join(' · ')
+              : 'Sin daños ni consumo del staff'}
+          </p>
         </div>
       </div>
 

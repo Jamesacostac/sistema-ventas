@@ -8,7 +8,8 @@ import {
 
 /**
  * Compras de materiales (suman stock y quedan como gasto) y daños (descuentan y quedan como pérdida).
- * Las pérdidas se guardan en perdidas/{id}: { fecha, creadoEn, tipo, descripcion, motivo, cantidad, valor }.
+ * Las pérdidas se guardan en perdidas/{id}: { fecha, creadoEn, clase, tipo, descripcion, motivo, cantidad, valor }.
+ * clase: 'dano' (algo se dañó) o 'prueba' (material gastado en pruebas de color o corte).
  */
 
 const dinero = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO');
@@ -151,6 +152,7 @@ export function CompraMateriales({ materiales, puedeEditar, operacion, col, docN
 // ---------- Daños y pérdidas ----------
 
 export function RegistrarDano({ materiales, fabricados, puedeRegistrar, operacion, col, docN }) {
+  const [clase, setClase] = useState('dano');
   const [tipo, setTipo] = useState('material');
   const [materialId, setMaterialId] = useState('');
   const [productoId, setProductoId] = useState('');
@@ -198,13 +200,15 @@ export function RegistrarDano({ materiales, fabricados, puedeRegistrar, operacio
     setGuardando(true);
     setEstado(null);
     try {
-      const op = operacion('Daño registrado', `${calculo.descripcion} — pérdida ${dinero(calculo.valor)}${motivo.trim() ? ` (${motivo.trim()})` : ''}`);
+      const esPrueba = clase === 'prueba';
+      const op = operacion(esPrueba ? 'Prueba registrada' : 'Daño registrado', `${calculo.descripcion} — ${esPrueba ? 'gasto en pruebas' : 'pérdida'} ${dinero(calculo.valor)}${motivo.trim() ? ` (${motivo.trim()})` : ''}`);
       Object.entries(calculo.stock || {}).forEach(([id, stock]) => op.actualizar(docN('materiales', id), { stock }, { stock: porId[id]?.stock ?? 0 }));
       if (calculo.listos) op.actualizar(docN('productos', producto.id), { listos: calculo.listos }, { listos: producto.listos || {} });
       op.crear(doc(col('perdidas')), {
         fecha: fechaLocal(),
         creadoEn: Date.now(),
-        tipo: tipo === 'material' ? 'Material' : origen === 'listos' ? 'Producto listo' : 'Producto en proceso',
+        clase,
+        tipo: `${esPrueba ? 'Prueba · ' : ''}${tipo === 'material' ? 'Material' : origen === 'listos' ? 'Producto listo' : 'Producto en proceso'}`,
         descripcion: calculo.descripcion,
         motivo: motivo.trim(),
         cantidad: cant,
@@ -214,7 +218,7 @@ export function RegistrarDano({ materiales, fabricados, puedeRegistrar, operacio
       await op.guardar();
       setCantidad('1');
       setMotivo('');
-      setEstado({ tipo: 'ok', texto: `Daño registrado: pérdida de ${dinero(calculo.valor)}. Lo ves en Finanzas.` });
+      setEstado({ tipo: 'ok', texto: `${esPrueba ? 'Prueba registrada' : 'Daño registrado'}: ${dinero(calculo.valor)}. Lo ves en Finanzas.` });
     } catch (err) {
       setEstado({ tipo: 'error', texto: 'No se pudo guardar: ' + err.message });
     } finally {
@@ -223,10 +227,18 @@ export function RegistrarDano({ materiales, fabricados, puedeRegistrar, operacio
   };
 
   return (
-    <Plegable titulo="Registrar daño o pérdida" descripcion="Material dañado o producto que tocó repetir" icono={<AlertOctagon size={18} />}>
+    <Plegable titulo="Registrar daño o prueba" descripcion="Material dañado, producto que tocó repetir o pruebas de color y corte" icono={<AlertOctagon size={18} />}>
       {!puedeRegistrar && <p className="aviso aviso-atencion mb-3">🔒 Necesitas el permiso de ventas o de inventario.</p>}
       <form onSubmit={guardar}>
         <fieldset disabled={!puedeRegistrar || guardando} className="space-y-4">
+          <div>
+            <p className="etiqueta">¿Por qué se gastó?</p>
+            <div className="segmentado">
+              <button type="button" onClick={() => setClase('dano')} className={`segmento ${clase === 'dano' ? 'segmento-activo' : ''}`}>Se dañó</button>
+              <button type="button" onClick={() => { setClase('prueba'); setOrigen('proceso'); }} className={`segmento ${clase === 'prueba' ? 'segmento-activo' : ''}`}>Prueba de color o corte</button>
+            </div>
+            {clase === 'prueba' && <p className="text-xs text-gris-calido mt-1">Material usado en pruebas antes de imprimir o cortar. Se cuenta aparte de los daños.</p>}
+          </div>
           <div className="segmentado">
             <button type="button" onClick={() => setTipo('material')} className={`segmento ${tipo === 'material' ? 'segmento-activo' : ''}`}>Un material</button>
             <button type="button" onClick={() => setTipo('producto')} className={`segmento ${tipo === 'producto' ? 'segmento-activo' : ''}`}>Un producto completo</button>
@@ -264,18 +276,18 @@ export function RegistrarDano({ materiales, fabricados, puedeRegistrar, operacio
             </div>
             <div className="sm:col-span-2">
               <label className="etiqueta">Qué pasó <span className="font-normal text-gris-calido">(opcional)</span></label>
-              <input value={motivo} onChange={(e) => setMotivo(e.target.value)} className="campo" placeholder="Ej. la película se arrugó en la prensa" />
+              <input value={motivo} onChange={(e) => setMotivo(e.target.value)} className="campo" placeholder={clase === 'prueba' ? 'Ej. prueba de color del diseño de Rikku' : 'Ej. la película se arrugó en la prensa'} />
             </div>
           </div>
 
           {calculo?.error && <p className="aviso aviso-error">{calculo.error}</p>}
           {calculo && !calculo.error && (
             <p className="aviso aviso-info !text-sm">
-              <span>Pérdida: <b>{dinero(calculo.valor)}</b>{calculo.faltantes?.length ? ` · sin stock: ${calculo.faltantes.map(f => f.material.nombre).join(', ')}` : ''}</span>
+              <span>{clase === 'prueba' ? 'Gasto en pruebas' : 'Pérdida'}: <b>{dinero(calculo.valor)}</b>{calculo.faltantes?.length ? ` · sin stock: ${calculo.faltantes.map(f => f.material.nombre).join(', ')}` : ''}</span>
             </p>
           )}
           <Mensaje estado={estado} />
-          <button type="submit" disabled={!calculo || !!calculo.error} className="btn btn-peligro"><Save size={16} /> {guardando ? 'Guardando...' : 'Registrar daño'}</button>
+          <button type="submit" disabled={!calculo || !!calculo.error} className="btn btn-peligro"><Save size={16} /> {guardando ? 'Guardando...' : clase === 'prueba' ? 'Registrar prueba' : 'Registrar daño'}</button>
         </fieldset>
       </form>
     </Plegable>
@@ -287,7 +299,9 @@ export function RegistrarDano({ materiales, fabricados, puedeRegistrar, operacio
 export function PerdidasFinanzas({ perdidas, puedeBorrar, operacion, docN }) {
   const mes = fechaLocal().slice(0, 7);
   const delMes = perdidas.filter(p => (p.fecha || '').startsWith(mes));
-  const totalMes = delMes.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+  const suma = (lista) => lista.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+  const totalMes = suma(delMes);
+  const pruebasMes = suma(delMes.filter(p => p.clase === 'prueba'));
   const total = perdidas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
   const recientes = [...perdidas].sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)).slice(0, 30);
 
@@ -305,14 +319,15 @@ export function PerdidasFinanzas({ perdidas, puedeBorrar, operacion, docN }) {
   return (
     <div className="panel overflow-hidden">
       <div className="p-4 md:p-5 border-b-[1.5px] border-linea flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><AlertOctagon size={18} /> Pérdidas por daños</h2>
+        <h2 className="text-base font-bold text-tinta flex items-center gap-2.5"><AlertOctagon size={18} /> Daños y pruebas</h2>
         <div className="flex gap-2 text-xs">
-          <span className="pastilla pastilla-peligro">Este mes {dinero(totalMes)} · {delMes.length}</span>
+          <span className="pastilla pastilla-peligro">Daños este mes {dinero(totalMes - pruebasMes)}</span>
+          <span className="pastilla pastilla-pendiente">Pruebas este mes {dinero(pruebasMes)}</span>
           <span className="pastilla pastilla-neutra">Total {dinero(total)}</span>
         </div>
       </div>
       {recientes.length === 0 ? (
-        <p className="p-6 text-center text-sm text-gris-calido">Sin daños registrados. Se registran en Inventario → Materiales.</p>
+        <p className="p-6 text-center text-sm text-gris-calido">Sin daños ni pruebas registrados. Se registran en Inventario → Materiales.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="tabla w-full text-left border-collapse text-sm">

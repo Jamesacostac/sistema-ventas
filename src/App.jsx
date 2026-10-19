@@ -299,7 +299,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
   // Formularios
   const [formVenta, setFormVenta] = useState({
-    cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: ''
+    cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, staff: false, medioPago: 'Efectivo', otroMedioPago: ''
   });
 
   const [formProducto, setFormProducto] = useState(FORM_PRODUCTO_VACIO);
@@ -788,15 +788,16 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     || datafonos.find(d => d.id === configDatafono?.predeterminado)
     || datafonos[0];
   const cobroTarjeta = formVenta.medioPago === 'Tarjeta' && totalCarrito > 0 ? calcularCobroTarjeta(totalCarrito, datafonoActivo) : null;
-  const aplicaRecargo = !!cobroTarjeta && formVenta.pagado && configDatafono?.cobrarAlCliente !== false && cobroTarjeta.recargo > 0;
-  const totalACobrar = aplicaRecargo ? cobroTarjeta.cobrar : totalCarrito;
+  const aplicaRecargo = !!cobroTarjeta && formVenta.pagado && !formVenta.staff && configDatafono?.cobrarAlCliente !== false && cobroTarjeta.recargo > 0;
+  // Consumo del staff: no se cobra; su costo queda como consumo
+  const totalACobrar = formVenta.staff ? 0 : aplicaRecargo ? cobroTarjeta.cobrar : totalCarrito;
 
   // Registra todo el carrito en una sola operación atómica (writeBatch):
   // una venta por ítem + la actualización de lotes de cada producto.
   const handleRegistrarVenta = async () => {
     if (carrito.length === 0) return alert("El carrito está vacío.");
     if (!exigir('ventas', 'registrar ventas')) return;
-    if (formVenta.medioPago === 'Otro' && !formVenta.otroMedioPago.trim()) {
+    if (!formVenta.staff && formVenta.medioPago === 'Otro' && !formVenta.otroMedioPago.trim()) {
       return alert("Especifica el medio de pago.");
     }
 
@@ -813,19 +814,20 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       return alert("Para dejar una venta como Pendiente (fiado) escribe el nombre del cliente.");
     }
 
-    const medioPagoFinal = formVenta.medioPago === 'Otro'
-      ? formVenta.otroMedioPago.trim()
-      : formVenta.medioPago;
+    const medioPagoFinal = formVenta.staff ? 'Staff'
+      : formVenta.medioPago === 'Otro'
+        ? formVenta.otroMedioPago.trim()
+        : formVenta.medioPago;
     const fecha = fechaLocal();
     const creadoEn = Date.now();
     const pedidoId = doc(col('ventas')).id;
 
     setGuardandoVenta(true);
     try {
-      const clientePrevio = buscarClientePorNombre(nombreCliente);
-      const nombreMostrado = clientePrevio?.nombre || nombreCliente || 'Cliente General';
+      const clientePrevio = formVenta.staff ? null : buscarClientePorNombre(nombreCliente);
+      const nombreMostrado = clientePrevio?.nombre || nombreCliente || (formVenta.staff ? 'Staff' : 'Cliente General');
       const op = operacion(
-        formVenta.pagado ? 'Venta registrada' : 'Venta fiada registrada',
+        formVenta.staff ? 'Consumo del staff registrado' : formVenta.pagado ? 'Venta registrada' : 'Venta fiada registrada',
         `${nombreMostrado} — $${totalACobrar.toLocaleString()} (${carrito.map(i => `${i.nombre} x${i.cantidad}`).join(', ')}${aplicaRecargo ? ` + recargo tarjeta $${cobroTarjeta.recargo.toLocaleString()}` : ''})`
       );
 
@@ -836,12 +838,12 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         const refCliente = op.crear(doc(col('clientes')), { nombre: nombreCliente, telefono: '', nota: '', creadoEn });
         clienteRegistrado = { id: refCliente.id, nombre: nombreCliente };
       }
-      const cliente = clienteRegistrado?.nombre || nombreCliente || 'Cliente General';
+      const cliente = clienteRegistrado?.nombre || nombreCliente || (formVenta.staff ? 'Staff' : 'Cliente General');
       const clienteId = clienteRegistrado?.id || null;
 
       carrito.forEach(item => {
         const plan = item.fabricado ? planFab.lineas[lineasFab.indexOf(item)] : null;
-        const total = totalItem(item);
+        const total = formVenta.staff ? 0 : totalItem(item);
         const costoTotal = plan ? plan.costoTotal : item.costo * item.cantidad;
         op.crear(doc(col('ventas')), {
           fecha,
@@ -857,7 +859,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           medioPago: medioPagoFinal,
           pedidoId,
           creadoEn,
-          ...(plan && { fabricado: true, productoId: item.productoId, deListos: plan.deListos, consumo: plan.consumo })
+          ...(plan && { fabricado: true, productoId: item.productoId, deListos: plan.deListos, consumo: plan.consumo }),
+          ...(formVenta.staff && { staff: true, precioNormal: totalItem(item) })
         });
       });
 
@@ -934,7 +937,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
       setCarrito([]);
       setPedidoAbierto(false);
-      setFormVenta({ cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, medioPago: 'Efectivo', otroMedioPago: '' });
+      setFormVenta({ cliente: '', productoId: '', variante: 'TODAS', cantidad: 1, pagado: true, staff: false, medioPago: 'Efectivo', otroMedioPago: '' });
     } catch (error) {
       alert("Error al registrar la venta: " + error.message);
     } finally {
@@ -1791,6 +1794,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         const puedeVender = puede('ventas');
         // Materiales que no alcanzan para lo que hay en el pedido (se compran por pedido)
         const planPedido = planificarVenta(carrito.filter(i => i.fabricado), fabricadosPorId, materialesPorId);
+        const costoPedido = carrito.filter(i => !i.fabricado).reduce((s, i) => s + i.costo * i.cantidad, 0)
+          + planPedido.lineas.reduce((s, l) => s + (l.costoTotal || 0), 0);
 
         // Contenido del pedido (columna en PC, ventana flotante en las demás pantallas)
         const contenidoPedido = (
@@ -1854,11 +1859,11 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
               <div className="space-y-4">
                 <div>
-                  <label className="etiqueta">Cliente {formVenta.pagado && <span className="font-normal text-gris-calido">(opcional)</span>}</label>
+                  <label className="etiqueta">{formVenta.staff ? '¿Quién del staff?' : 'Cliente'} {formVenta.pagado && <span className="font-normal text-gris-calido">(opcional)</span>}</label>
                   <input
                     type="text"
                     list="lista-clientes"
-                    placeholder={formVenta.pagado ? 'Cliente General' : 'Nombre de quien queda debiendo'}
+                    placeholder={formVenta.staff ? 'Staff' : formVenta.pagado ? 'Cliente General' : 'Nombre de quien queda debiendo'}
                     value={formVenta.cliente}
                     onChange={(e) => setFormVenta({ ...formVenta, cliente: e.target.value })}
                     className={`campo ${!formVenta.pagado && !formVenta.cliente.trim() ? '!border-sol !bg-amber-50' : ''}`}
@@ -1873,16 +1878,24 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                 <div>
                   <p className="etiqueta">Estado</p>
                   <div className="segmentado">
-                    <button onClick={() => setFormVenta({ ...formVenta, pagado: true })} className={`segmento ${formVenta.pagado ? 'segmento-activo' : ''}`}>
+                    <button onClick={() => setFormVenta({ ...formVenta, pagado: true, staff: false })} className={`segmento ${formVenta.pagado && !formVenta.staff ? 'segmento-activo' : ''}`}>
                       <CheckCircle size={14} /> Pagado
                     </button>
-                    <button onClick={() => setFormVenta({ ...formVenta, pagado: false })} className={`segmento ${!formVenta.pagado ? 'segmento-activo-fiado' : ''}`}>
+                    <button onClick={() => setFormVenta({ ...formVenta, pagado: false, staff: false })} className={`segmento ${!formVenta.pagado ? 'segmento-activo-fiado' : ''}`}>
                       <HandCoins size={14} /> Fiado
                     </button>
+                    <button onClick={() => setFormVenta({ ...formVenta, pagado: true, staff: true })} className={`segmento ${formVenta.staff ? 'segmento-activo' : ''}`} title="Lo toma el equipo: no se cobra">
+                      <Users size={14} /> Staff
+                    </button>
                   </div>
+                  {formVenta.staff && (
+                    <p className="text-[11px] text-gris-calido mt-1.5">
+                      No se cobra. Se descuenta del inventario y su costo ({dinero(costoPedido)}) queda como consumo del staff.
+                    </p>
+                  )}
                 </div>
 
-                <div>
+                <div className={formVenta.staff ? 'hidden' : ''}>
                   <p className="etiqueta">Medio de pago</p>
                   <div className="segmentado">
                     {['Efectivo', 'Transferencia', 'Tarjeta', 'Otro'].map(m => (
@@ -1949,10 +1962,11 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                 type="button"
                 onClick={handleRegistrarVenta}
                 disabled={!puedeVender || carrito.length === 0 || guardandoVenta}
-                className={`btn w-full !py-3 !text-base ${formVenta.pagado ? 'btn-primario' : 'btn-oscuro'}`}
+                className={`btn w-full !py-3 !text-base ${formVenta.pagado && !formVenta.staff ? 'btn-primario' : 'btn-oscuro'}`}
               >
                 {guardandoVenta
                   ? 'Registrando...'
+                  : formVenta.staff ? <><Users size={18} /> Registrar consumo del staff</>
                   : formVenta.pagado ? <><CheckCircle size={18} /> Cobrar {dinero(totalACobrar)}</> : <><HandCoins size={18} /> Registrar fiado</>}
               </button>
           </>
@@ -1961,7 +1975,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         return (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 print:gap-2 print:mb-4" data-recorrido="indicadores">
-            <Kpi color="sol" icono={<Banknote size={18} />} etiqueta="Ventas pagadas" valor={dinero(totalIngresosDia)} detalle={`${ventasPagadas.length} venta(s)`} />
+            <Kpi color="sol" icono={<Banknote size={18} />} etiqueta="Ventas pagadas" valor={dinero(totalIngresosDia)} detalle={`${ventasPagadas.filter(v => !v.staff).length} venta(s)`} />
             <Kpi color="turquesa" icono={<RefreshCw size={18} />} etiqueta="Fondo reposición" valor={dinero(totalReposicionDia)} detalle="Costo de lo vendido" />
             <Kpi color="verde" icono={<PiggyBank size={18} />} etiqueta="Ahorro mejoras" valor={dinero(fondoAhorro)} detalle={`${porcentajeAhorro} % de la ganancia`} />
             <Kpi color="coral" icono={<Handshake size={18} />} etiqueta="Pago por socio" valor={dinero(salarioPorSocio)} detalle={`Ganancia neta ÷ ${numeroSocios}`} />
@@ -2188,17 +2202,21 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                         <span className="block md:hidden text-[11px] text-gris-calido">{v.fecha} · {v.medioPago}</span>
                         {v.variante && v.variante !== 'Auto (FEFO)' && <span className="block text-[11px] text-gris-calido">{v.variante}</span>}
                       </td>
-                      <td className={`p-3 text-right whitespace-nowrap ${v.esRecargo ? 'text-gris-calido' : 'font-bold'}`}>{v.esRecargo ? `(${dinero(v.total)})` : dinero(v.total)}</td>
+                      <td className={`p-3 text-right whitespace-nowrap ${v.esRecargo || v.staff ? 'text-gris-calido' : 'font-bold'}`}>{v.esRecargo ? `(${dinero(v.total)})` : v.staff ? <span title="No se cobró">costo {dinero(v.costoTotal)}</span> : dinero(v.total)}</td>
                       <td className="p-3 hidden sm:table-cell"><span className="pastilla pastilla-neutra">{v.medioPago}</span></td>
                       <td className="p-3">
-                        <button
-                          onClick={() => togglePago(v.id, v.pagado)}
-                          title="Cambiar estado de pago"
-                          className={`pastilla hover:brightness-95 transition ${v.pagado ? 'pastilla-ok' : 'pastilla-pendiente'}`}
-                        >
-                          {v.pagado ? <CheckCircle size={12} /> : <HandCoins size={12} />}
-                          {v.pagado ? 'Pagado' : 'Fiado'}
-                        </button>
+                        {v.staff ? (
+                          <span className="pastilla pastilla-info" title={`Consumo del staff · costo ${dinero(v.costoTotal)}`}><Users size={12} /> Staff</span>
+                        ) : (
+                          <button
+                            onClick={() => togglePago(v.id, v.pagado)}
+                            title="Cambiar estado de pago"
+                            className={`pastilla hover:brightness-95 transition ${v.pagado ? 'pastilla-ok' : 'pastilla-pendiente'}`}
+                          >
+                            {v.pagado ? <CheckCircle size={12} /> : <HandCoins size={12} />}
+                            {v.pagado ? 'Pagado' : 'Fiado'}
+                          </button>
+                        )}
                         {v.archivada && <span className="block mt-1 text-[10px] text-gris-calido whitespace-nowrap">Cerrada {v.fechaCierre ? fechaLocal(new Date(v.fechaCierre)) : ''}</span>}
                       </td>
                       <td className="p-3 text-right no-print">
