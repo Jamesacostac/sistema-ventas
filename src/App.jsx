@@ -13,6 +13,7 @@ import Socios from './Socios';
 import Materiales from './Materiales';
 import ProductosFabricados from './ProductosFabricados';
 import SelectorFabricado from './SelectorFabricado';
+import { CompraMateriales, RegistrarDano, PerdidasFinanzas } from './ComprasDanos';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -102,6 +103,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   const [fabricados, setFabricados] = useState([]);
   const [materiales, setMateriales] = useState([]);
   const [eligiendoFabricado, setEligiendoFabricado] = useState(null);
+  const [perdidas, setPerdidas] = useState([]);
   const fabricadosPorId = Object.fromEntries(fabricados.map(p => [p.id, p]));
   const materialesPorId = Object.fromEntries(materiales.map(m => [m.id, m]));
   const [ventas, setVentas] = useState([]);
@@ -201,6 +203,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       setMateriales(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     }, manejarError);
 
+    const unsubPerdidas = onSnapshot(col('perdidas'), (snapshot) => {
+      setPerdidas(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, manejarError);
+
     const unsubVentas = onSnapshot(col('ventas'), (snapshot) => {
       const lista = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setVentas(lista.sort((a, b) => (b.creadoEn || 0) - (a.creadoEn || 0)));
@@ -243,6 +249,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     return () => {
       unsubProductos();
       unsubMateriales();
+      unsubPerdidas();
       unsubVentas();
       unsubCategorias();
       unsubGastos();
@@ -1688,7 +1695,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         />
       )}
       {pestana === 'materiales' && (
-        <Materiales materiales={materiales} productos={fabricados} puedeEditar={puede('inventario')} operacion={operacion} col={col} docN={docN} />
+        <Materiales materiales={materiales} productos={fabricados} puedeEditar={puede('inventario')} operacion={operacion} col={col} docN={docN}>
+          <CompraMateriales materiales={materiales} puedeEditar={puede('inventario') && puede('finanzas')} operacion={operacion} col={col} docN={docN} />
+          <RegistrarDano materiales={materiales} fabricados={fabricados} puedeRegistrar={puede('inventario') || puede('ventas')} operacion={operacion} col={col} docN={docN} />
+        </Materiales>
       )}
       {pestana === 'fabricados' && (
         <ProductosFabricados
@@ -2479,6 +2489,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
               onClick={() => setPestana('clientes')}
             />
           </div>
+
+          {(negocio?.fabricacion || perdidas.length > 0) && (
+            <PerdidasFinanzas perdidas={perdidas} puedeBorrar={puede('inventario')} operacion={operacion} docN={docN} />
+          )}
 
           {/* Ajustar efectivo base no registrado */}
           <Plegable

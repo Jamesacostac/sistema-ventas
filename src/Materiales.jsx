@@ -14,7 +14,7 @@ const numero = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(
 
 const FORM_VACIO = { nombre: '', grupo: '', unidad: 'unidad', costo: '', costoPedido: '', stock: '', minimo: '' };
 
-export default function Materiales({ materiales, productos, puedeEditar, operacion, col, docN }) {
+export default function Materiales({ materiales, productos, puedeEditar, operacion, col, docN, children }) {
   const [form, setForm] = useState(FORM_VACIO);
   const [editandoId, setEditandoId] = useState(null);
   const [busqueda, setBusqueda] = useState('');
@@ -137,6 +137,8 @@ export default function Materiales({ materiales, productos, puedeEditar, operaci
           <p className="text-xs mt-1 opacity-80">{sinCosto.length ? 'Ponles costo para calcular precios' : 'Todos tienen costo'}</p>
         </div>
       </div>
+
+      {children}
 
       <Plegable
         titulo={editandoId ? `Editar material: ${form.nombre}` : 'Nuevo material'}

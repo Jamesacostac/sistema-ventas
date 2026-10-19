@@ -192,6 +192,14 @@ service cloud.firestore {
         allow delete: if eliminarEn(nid, 'inventario', 'materiales', id);
       }
 
+      // Daños y pérdidas: los registra quien vende o quien maneja el inventario
+      match /perdidas/{id} {
+        allow read: if miembroVerificado(nid);
+        allow create: if escribirEn(nid, 'inventario') || escribirEn(nid, 'ventas');
+        allow update: if escribirEn(nid, 'inventario');
+        allow delete: if eliminarEn(nid, 'inventario', 'perdidas', id);
+      }
+
       match /categorias/{id} {
         allow read: if miembroVerificado(nid);
         allow create, update: if escribirEn(nid, 'inventario');
