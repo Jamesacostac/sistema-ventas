@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, doc, onSnapshot, query, where, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { EmailAuthProvider, linkWithCredential, signOut, updateProfile } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import {
-  ShoppingCart, Receipt, UtensilsCrossed, Plus, Minus, X, Search, LogOut, Trash2, CheckCircle, Clock, Printer, UserPlus
+  ShoppingCart, Receipt, UtensilsCrossed, Plus, Minus, X, Search, LogOut, Trash2, CheckCircle, Clock, Printer
 } from 'lucide-react';
-import { db, auth } from './firebase';
+import { db, auth } from './firebaseClientes';
 import { ID_TAZON } from './negociosComun';
 import {
   MEDIOS_PAGO_CLIENTE, negocioPublico, generarCodigoPedido, precioItemCliente, descripcionItemCliente,
-  claveItemCliente, estadoPedido, fechaHora, aMilis, mensajesErrorCliente
+  claveItemCliente, estadoPedido, fechaHora, aMilis
 } from './pedidosEnLinea';
 
 const dinero = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO');
@@ -212,51 +212,6 @@ function DetallePedido({ pedido, onCerrar, onCancelar }) {
   );
 }
 
-// ---------- Crear cuenta desde invitado (conserva el historial) ----------
-
-function CrearCuenta({ usuario, nombreActual, onListo, onCerrar }) {
-  const [nombre, setNombre] = useState(nombreActual || '');
-  const [correo, setCorreo] = useState('');
-  const [clave, setClave] = useState('');
-  const [error, setError] = useState('');
-  const [enviando, setEnviando] = useState(false);
-
-  const crear = async (e) => {
-    e.preventDefault();
-    setError('');
-    setEnviando(true);
-    try {
-      await linkWithCredential(usuario, EmailAuthProvider.credential(correo.trim(), clave));
-      await updateProfile(usuario, { displayName: nombre.trim() });
-      onListo(nombre.trim());
-    } catch (err) {
-      setError(mensajesErrorCliente[err.code] || 'No se pudo crear la cuenta: ' + err.message);
-    } finally {
-      setEnviando(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label="Crear cuenta">
-      <div className="absolute inset-0 bg-tinta/50" onClick={onCerrar} />
-      <form onSubmit={crear} className="relative w-full sm:max-w-sm bg-white border-2 border-tinta rounded-t-[1.5rem] sm:rounded-[1.25rem] p-5 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold text-tinta">Crear cuenta</h2>
-            <p className="text-xs text-gris-calido">Tus pedidos de ahora quedan guardados en tu cuenta.</p>
-          </div>
-          <button type="button" onClick={onCerrar} className="btn-icono" aria-label="Cerrar"><X size={18} /></button>
-        </div>
-        <div><label className="etiqueta">Tu nombre</label><input required value={nombre} onChange={(e) => setNombre(e.target.value)} className="campo" maxLength={60} /></div>
-        <div><label className="etiqueta">Correo</label><input type="email" required autoComplete="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className="campo" /></div>
-        <div><label className="etiqueta">Contraseña</label><input type="password" required minLength={6} autoComplete="new-password" value={clave} onChange={(e) => setClave(e.target.value)} className="campo" /></div>
-        {error && <p className="aviso aviso-error">{error}</p>}
-        <button type="submit" disabled={enviando} className="btn btn-primario w-full"><UserPlus size={16} /> {enviando ? 'Creando...' : 'Crear cuenta'}</button>
-      </form>
-    </div>
-  );
-}
-
 // ---------- App del cliente ----------
 
 export default function ClienteApp({ usuario }) {
@@ -279,7 +234,6 @@ export default function ClienteApp({ usuario }) {
   const [pedidos, setPedidos] = useState([]);
   const [abiertoId, setAbiertoId] = useState(null);
   const [aviso, setAviso] = useState(null);
-  const [creandoCuenta, setCreandoCuenta] = useState(false);
   const estadosPrevios = useRef(null);
 
   useEffect(() => { guardar(claveCarrito, carrito); }, [claveCarrito, carrito]);
@@ -397,7 +351,6 @@ export default function ClienteApp({ usuario }) {
   };
 
   const salir = () => {
-    if (usuario.isAnonymous && !window.confirm('Entraste sin cuenta: si sales, perderás el historial de pedidos de este celular. ¿Salir?')) return;
     signOut(auth);
   };
 
@@ -416,13 +369,6 @@ export default function ClienteApp({ usuario }) {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-4 space-y-4 no-print">
-        {usuario.isAnonymous && (
-          <div className="aviso aviso-info flex-wrap items-center justify-between">
-            <span>Estás como invitado: tu historial queda solo en este celular.</span>
-            <button onClick={() => setCreandoCuenta(true)} className="enlace text-xs">Crear cuenta</button>
-          </div>
-        )}
-
         {vista === 'carta' && (
           <>
             <div className="relative">
@@ -547,14 +493,6 @@ export default function ClienteApp({ usuario }) {
 
       {eligiendo && <ElegirProducto item={eligiendo} onAgregar={agregar} onCerrar={() => setEligiendo(null)} />}
       {abierto && <DetallePedido pedido={abierto} onCerrar={() => setAbiertoId(null)} onCancelar={cancelarPedido} />}
-      {creandoCuenta && (
-        <CrearCuenta
-          usuario={usuario}
-          nombreActual={nombre}
-          onCerrar={() => setCreandoCuenta(false)}
-          onListo={(n) => { setNombre(n); setCreandoCuenta(false); setAviso({ tipo: 'ok', texto: 'Cuenta creada. Tu historial quedó guardado.' }); }}
-        />
-      )}
       {aviso && (
         <div role="status" className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] aviso no-print ${aviso.tipo === 'error' ? 'aviso-error' : 'aviso-ok'}`}>
           {aviso.texto}

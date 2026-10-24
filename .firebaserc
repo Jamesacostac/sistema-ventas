@@ -1,5 +1,18 @@
 {
   "projects": {
     "default": "app-ventas-comestibles"
-  }
+  },
+  "targets": {
+    "app-ventas-comestibles": {
+      "hosting": {
+        "negocio": [
+          "app-ventas-comestibles"
+        ],
+        "pedidos": [
+          "tazon-pedidos"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

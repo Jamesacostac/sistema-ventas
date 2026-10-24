@@ -17,6 +17,9 @@ import {
 
 export const MEDIOS_PAGO_CLIENTE = ['Efectivo', 'Transferencia', 'Tarjeta'];
 
+// Portal de clientes (sitio aparte del portal del negocio para que las sesiones no se mezclen)
+export const URL_PORTAL_CLIENTES = 'https://tazon-pedidos.web.app';
+
 // Negocio que atiende los pedidos del enlace público (?negocio=id para otro)
 export const negocioPublico = (idPorDefecto) => {
   try {
@@ -148,9 +151,7 @@ export const mensajesErrorCliente = {
   'auth/invalid-credential': 'Correo o contraseña incorrectos.',
   'auth/invalid-email': 'El correo no es válido.',
   'auth/email-already-in-use': 'Ya hay una cuenta con ese correo. Inicia sesión.',
-  'auth/credential-already-in-use': 'Ya hay una cuenta con ese correo. Cierra sesión e inicia con ella.',
   'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
   'auth/too-many-requests': 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.',
   'auth/network-request-failed': 'Sin conexión a internet.',
-  'auth/operation-not-allowed': 'Esta forma de entrar todavía no está activada. Pídele al negocio que la active.'
 };
