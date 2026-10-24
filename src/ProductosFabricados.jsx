@@ -351,17 +351,47 @@ export default function ProductosFabricados({ productos, materiales, categorias,
     }
   };
 
-  // Crea los materiales, platos y combos de Tazón para Dos que todavía no existan.
+  // Crea los materiales, platos y combos de Tazón para Dos que todavía no existan, y completa
+  // los combos ya creados con las opciones que les falten (p. ej. una bebida que no se encontró).
   // Las bebidas y el mecato de los combos se buscan por nombre en el inventario.
-  const combosTazonPendientes = CATALOGO_TAZON.productos.filter(p => !productos.some(x => x.nombre.toLowerCase() === p.nombre.toLowerCase()));
+  const normalizar = (texto) => String(texto || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const idProducto = (nombre) => inventario.find(p => normalizar(p.nombre) === normalizar(nombre))?.id;
+  const opcionesCatalogo = (espacio, noEncontrados) => espacio.opciones
+    .map(o => {
+      const productoId = idProducto(o.producto);
+      if (!productoId) noEncontrados?.add(o.producto);
+      return productoId ? { productoId, precioExtra: o.precioExtra } : null;
+    })
+    .filter(Boolean);
+  const combosTazonPendientes = CATALOGO_TAZON.productos.filter(p => !productos.some(x => normalizar(x.nombre) === normalizar(p.nombre)));
+  // Combos ya creados a los que les falta alguna opción del catálogo que ahora sí está en el inventario
+  const combosTazonIncompletos = CATALOGO_TAZON.productos.flatMap(p => {
+    const existente = fabricados.find(x => normalizar(x.nombre) === normalizar(p.nombre));
+    if (!existente || !(p.incluye || []).length) return [];
+    const incluye = p.incluye.map(e => {
+      const actual = (existente.incluye || []).find(x => normalizar(x.nombre) === normalizar(e.nombre));
+      const delCatalogo = opcionesCatalogo(e);
+      const otras = (actual?.opciones || []).filter(o => !delCatalogo.some(c => c.productoId === o.productoId));
+      return { id: actual?.id || nuevoId(), nombre: e.nombre, cantidad: e.cantidad, opciones: [...delCatalogo, ...otras] };
+    }).filter(e => e.opciones.length > 0);
+    const faltaAlgo = incluye.some(e => {
+      const actual = (existente.incluye || []).find(x => x.id === e.id);
+      return !actual || e.opciones.some(o => !actual.opciones.some(a => a.productoId === o.productoId));
+    });
+    return faltaAlgo ? [{ existente, incluye }] : [];
+  });
   const cargarCombosTazon = async () => {
     if (!puedeEditar) return;
     const { materiales: mats } = CATALOGO_TAZON;
-    if (!confirm(`Se crearán ${combosTazonPendientes.length} platos y combos (y los materiales de empanadas y nuggets que falten, con stock 0). Los que ya existan con el mismo nombre se dejan como están. ¿Continuar?`)) return;
+    if (!confirm(`Se crearán ${combosTazonPendientes.length} platos y combos (y los materiales de empanadas y nuggets que falten, con stock 0) y se completarán ${combosTazonIncompletos.length} combo(s) a los que les faltan opciones. ¿Continuar?`)) return;
     setGuardando(true);
     setEstado(null);
     try {
-      const op = operacion('Platos y combos de Tazón cargados', `${combosTazonPendientes.length} productos`);
+      const op = operacion('Platos y combos de Tazón cargados', `${combosTazonPendientes.length} nuevos, ${combosTazonIncompletos.length} completados`);
+      combosTazonIncompletos.forEach(({ existente, incluye }) => {
+        const datos = { ...existente, incluye };
+        op.actualizar(docN('productos', existente.id), { incluye, costo: costoMinimo(datos, materialesPorId, inventarioPorId) }, existente);
+      });
       const idPorClave = {};
       const materialesTemp = { ...materialesPorId };
       let nuevosMateriales = 0;
@@ -374,21 +404,9 @@ export default function ProductosFabricados({ productos, materiales, categorias,
         materialesTemp[id] = { id, ...datos };
         nuevosMateriales++;
       });
-      const idProducto = (nombre) => inventario.find(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase())?.id;
       const noEncontrados = new Set();
       combosTazonPendientes.forEach(p => {
-        const incluye = (p.incluye || []).map(e => ({
-          id: nuevoId(),
-          nombre: e.nombre,
-          cantidad: e.cantidad,
-          opciones: e.opciones
-            .map(o => {
-              const productoId = idProducto(o.producto);
-              if (!productoId) noEncontrados.add(o.producto);
-              return productoId ? { productoId, precioExtra: o.precioExtra } : null;
-            })
-            .filter(Boolean)
-        }));
+        const incluye = (p.incluye || []).map(e => ({ id: nuevoId(), nombre: e.nombre, cantidad: e.cantidad, opciones: opcionesCatalogo(e, noEncontrados) }));
         const datos = {
           nombre: p.nombre,
           categoria: p.categoria,
@@ -415,7 +433,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
       await op.guardar();
       setEstado({
         tipo: noEncontrados.size ? 'error' : 'ok',
-        texto: `Listo: ${combosTazonPendientes.length} plato(s) y combo(s) y ${nuevosMateriales} material(es).`
+        texto: `Listo: ${combosTazonPendientes.length} plato(s) y combo(s) nuevos, ${combosTazonIncompletos.length} completado(s) y ${nuevosMateriales} material(es).`
           + (noEncontrados.size ? ` No se encontraron en el inventario: ${[...noEncontrados].join(', ')} (quedaron fuera de los combos).` : '')
           + ' Registra las bolsas de empanadas y nuggets en Inventario → Materiales.'
       });
@@ -442,8 +460,10 @@ export default function ProductosFabricados({ productos, materiales, categorias,
           {fabricados.length === 0 && /noguri/i.test(negocio?.nombre || '') && (
             <button onClick={cargarCatalogo} disabled={!puedeEditar || guardando} className="btn btn-claro"><Sparkles size={16} /> Cargar catálogo de Noguri</button>
           )}
-          {combosTazonPendientes.length > 0 && /taz[oó]n/i.test(negocio?.nombre || '') && (
-            <button onClick={cargarCombosTazon} disabled={!puedeEditar || guardando} className="btn btn-claro"><Sparkles size={16} /> Cargar platos y combos</button>
+          {(combosTazonPendientes.length > 0 || combosTazonIncompletos.length > 0) && /taz[oó]n/i.test(negocio?.nombre || '') && (
+            <button onClick={cargarCombosTazon} disabled={!puedeEditar || guardando} className="btn btn-claro">
+              <Sparkles size={16} /> {combosTazonPendientes.length > 0 ? 'Cargar platos y combos' : `Completar ${combosTazonIncompletos.length} combo(s)`}
+            </button>
           )}
           <button onClick={abrirNuevo} disabled={!puedeEditar || !!form} className="btn btn-primario"><Plus size={16} /> Nuevo producto</button>
         </div>
