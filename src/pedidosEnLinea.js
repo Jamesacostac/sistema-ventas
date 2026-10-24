@@ -20,12 +20,14 @@ export const MEDIOS_PAGO_CLIENTE = ['Efectivo', 'Transferencia', 'Tarjeta'];
 // Portal de clientes (sitio aparte del portal del negocio para que las sesiones no se mezclen)
 export const URL_PORTAL_CLIENTES = 'https://tazon-pedidos.web.app';
 
-// Negocio que atiende los pedidos del enlace público (?negocio=id para otro)
-export const negocioPublico = (idPorDefecto) => {
+// Negocio que atiende los pedidos del portal (?negocio=id para otro). Es el mismo ID_TAZON de
+// negociosComun, copiado aquí para que el portal de clientes no cargue código del negocio.
+const NEGOCIO_POR_DEFECTO = 'tazon-para-dos';
+export const negocioPublico = () => {
   try {
-    return new URLSearchParams(window.location.search).get('negocio') || idPorDefecto;
+    return new URLSearchParams(window.location.search).get('negocio') || NEGOCIO_POR_DEFECTO;
   } catch {
-    return idPorDefecto;
+    return NEGOCIO_POR_DEFECTO;
   }
 };
 
