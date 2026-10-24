@@ -157,3 +157,39 @@ export const mensajesErrorCliente = {
   'auth/too-many-requests': 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.',
   'auth/network-request-failed': 'Sin conexión a internet.',
 };
+
+// ---------- Solicitudes de la página web de Noguri ----------
+// El Apps Script de la página (tazon-para-dos.online/NOGURI) copia cada solicitud como pedido con
+// origen 'web-noguri'. Sus ítems traen { tipo: 'noguri', producto: 'stickers'|'botones'|'pines', medida_mm,
+// cantidad }. Al cobrar se buscan los productos fabricados equivalentes para descontar sus materiales.
+
+const medidaEnNombre = (nombre) => Number((String(nombre).match(/(\d+)\s*mm/i) || [])[1]) || null;
+
+/**
+ * Producto fabricado que corresponde a un ítem de la web de Noguri:
+ * { prod, valores, aproximado: texto si no es exacto } o null si no hay ninguno.
+ */
+export const productoNoguri = (item, fabricados) => {
+  const medida = Number(item.medida_mm);
+  const valoresDe = (prod, preferido) => (prod.opciones || []).map(o => (
+    o.valores.find(v => preferido && preferido.test(v.nombre)) || o.valores[0]
+  )?.id).filter(Boolean);
+
+  if (item.producto === 'botones') {
+    const prod = fabricados.find(p => /bot[oó]n/i.test(p.nombre) && medidaEnNombre(p.nombre) === medida);
+    return prod ? { prod, valores: valoresDe(prod), aproximado: null } : null;
+  }
+  if (item.producto === 'pines') {
+    const prod = fabricados.find(p => /pin/i.test(p.nombre) && /resina/i.test(p.nombre));
+    return prod ? { prod, valores: valoresDe(prod, /personaliz/i), aproximado: null } : null;
+  }
+  // Stickers: el de la misma medida o el más cercano (se prefiere el mate a los fotográficos)
+  const candidatos = fabricados
+    .filter(p => /sticker/i.test(p.nombre) && !/hoja/i.test(p.nombre) && medidaEnNombre(p.nombre))
+    .sort((a, b) => Math.abs(medidaEnNombre(a.nombre) - medida) - Math.abs(medidaEnNombre(b.nombre) - medida)
+      || /foto/i.test(a.nombre) - /foto/i.test(b.nombre));
+  const prod = candidatos[0];
+  if (!prod) return null;
+  const real = medidaEnNombre(prod.nombre);
+  return { prod, valores: valoresDe(prod), aproximado: real === medida ? null : `sticker de ${medida} mm cobrado como "${prod.nombre}"` };
+};

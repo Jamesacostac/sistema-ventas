@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import {
   collection, onSnapshot, doc, getDoc, setDoc, query, where
 } from 'firebase/firestore';
-import { cartaPublica, fechaHora, aMilis } from './pedidosEnLinea';
+import { cartaPublica, fechaHora, aMilis, productoNoguri } from './pedidosEnLinea';
 import { db } from './firebase';
 import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegram';
 import { cerrarSesion } from './servidor';
@@ -858,9 +858,22 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     if (!exigir('ventas', 'cobrar pedidos')) return;
     if (carrito.length > 0 && !confirm('Hay productos en el pedido de caja. ¿Reemplazarlos por el pedido en línea?')) return;
     const faltan = [];
+    const aproximados = [];
     const ahora = Date.now();
     const items = pedido.items.flatMap((it, n) => {
-      const key = `${it.productoId}_${ahora}_${n}`;
+      const key = `${it.productoId || it.producto}_${ahora}_${n}`;
+      // Solicitud de la página web de Noguri: se cobra con el producto fabricado equivalente
+      if (it.tipo === 'noguri') {
+        const equivalente = productoNoguri(it, fabricados);
+        if (!equivalente) { faltan.push(it.nombre); return []; }
+        const { prod, valores, aproximado } = equivalente;
+        if (aproximado) aproximados.push(aproximado);
+        return [{
+          key, productoId: prod.id, nombre: prod.nombre, fabricado: true, valores, adicionales: [], elegidos: [],
+          variante: [descripcionLinea(prod, valores, []), it.descripcion].filter(Boolean).join(' · '),
+          cantidad: it.cantidad, precio: precioUnitario(prod, eleccionDe(prod, valores))
+        }];
+      }
       if (it.tipo === 'fabricado') {
         const prod = fabricadosPorId[it.productoId];
         if (!prod) { faltan.push(it.nombre); return []; }
@@ -882,11 +895,13 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       return [{ key, productoId: prod.id, nombre: prod.nombre, variante: it.variante || 'TODAS', cantidad: it.cantidad, precio: Number(prod.precio) || 0, costo: Number(prod.costo) || 0 }];
     });
     if (faltan.length) alert(`Ya no están en el inventario: ${faltan.join(', ')}. Se cargó el resto del pedido.`);
+    if (aproximados.length) alert(`ℹ️ Medidas que no existen en la app (se usó la más parecida):\n\n• ${aproximados.join('\n• ')}\n\nRevisa el precio antes de cobrar.`);
     const { error } = simularCarrito(items);
     if (error) alert(`⚠️ ${error}\n\nAjusta el pedido antes de cobrar.`);
     setCarrito(items);
     setPedidoEnLineaId(pedido.id);
-    setFormVenta(f => ({ ...f, cliente: pedido.clienteNombre, pagado: true, staff: false, medioPago: pedido.medioPago || 'Efectivo', otroMedioPago: '' }));
+    const medio = ['Efectivo', 'Transferencia', 'Tarjeta'].includes(pedido.medioPago) ? pedido.medioPago : 'Efectivo';
+    setFormVenta(f => ({ ...f, cliente: pedido.clienteNombre, pagado: true, staff: false, medioPago: medio, otroMedioPago: '' }));
     setPestana('ventas');
     setPedidoAbierto(true);
   };
@@ -2263,9 +2278,15 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                       <div className="min-w-0">
                         <p className="font-mono text-xl font-bold tracking-widest leading-none">{p.codigo}</p>
                         <p className="text-sm font-semibold truncate">{p.clienteNombre}</p>
-                        <p className="text-[11px] text-gris-calido">{fechaHora(p.creadoEn)} · paga con {p.medioPago}</p>
+                        <p className="text-[11px] text-gris-calido">
+                          {fechaHora(p.creadoEn)} · {p.origen === 'web-noguri' ? <>página web{p.telefono ? <> · <a href={'https://wa.me/57' + String(p.telefono).replace(/\D/g, '').slice(-10)} target="_blank" rel="noreferrer" className="enlace">{p.telefono}</a></> : ''}</> : <>paga con {p.medioPago}</>}
+                        </p>
+                        {p.nombreSolicitud && <p className="text-[11px]">«{p.nombreSolicitud}»{p.entregaFecha ? ' · para el ' + p.entregaFecha : ''}</p>}
                       </div>
-                      <span className="kpi-valor text-lg shrink-0">{dinero(p.total)}</span>
+                      <span className="kpi-valor text-lg shrink-0 text-right">
+                        {p.total ? dinero(p.total) : 'Por cotizar'}
+                        {p.origen === 'web-noguri' && p.total > 0 && <span className="block text-[10px] font-normal text-gris-calido">estimado web</span>}
+                      </span>
                     </div>
                     <ul className="text-xs text-gris-calido space-y-0.5">
                       {p.items.map((it, i) => (
@@ -2273,6 +2294,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                       ))}
                     </ul>
                     {p.nota && <p className="text-xs">📝 {p.nota}</p>}
+                    {p.servicios && (p.servicios.quitar_fondo || p.servicios.mejorar_resolucion) && (
+                      <p className="text-xs">🛠️ {[p.servicios.quitar_fondo && 'Quitar fondo', p.servicios.mejorar_resolucion && 'Mejorar resolución'].filter(Boolean).join(' · ')}</p>
+                    )}
+                    {p.carpetaUrl && <a href={p.carpetaUrl} target="_blank" rel="noreferrer" className="enlace text-xs inline-block">Ver los dibujos en Drive</a>}
                     <div className="flex gap-2">
                       <button onClick={() => cargarPedidoEnLinea(p)} disabled={!puedeVender} className="btn btn-primario btn-sm flex-1"><Banknote size={14} /> Cobrar</button>
                       <button onClick={() => cancelarPedidoEnLinea(p)} disabled={!puedeVender} className="btn btn-claro btn-sm">Cancelar</button>
