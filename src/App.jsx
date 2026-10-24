@@ -20,6 +20,7 @@ import { aplicarMarca } from './marca';
 import Recorrido from './Recorrido';
 import CajaBase from './CajaBase';
 import BajasLotes from './BajasLotes';
+import VincularCodigo from './VincularCodigo';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -312,6 +313,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   const [toast, setToast] = useState(null);
   const [formularioProductoAbierto, setFormularioProductoAbierto] = useState(false);
   const [buscandoNombre, setBuscandoNombre] = useState(false);
+  // Código leído que no está registrado: se ofrece vincularlo a un producto existente
+  const [codigoPorVincular, setCodigoPorVincular] = useState(null); // { codigo, origen: 'venta' | 'inventario' }
   const mostrarToast = (texto, tipo = 'ok') => setToast({ texto, tipo, id: Date.now() });
   useEffect(() => {
     if (!toast) return;
@@ -1310,16 +1313,53 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   const venderPorCodigo = (codigoLeido) => {
     const codigo = limpiarCodigo(codigoLeido);
     const prod = buscarProductoPorCodigo(productos, codigo);
-    if (!prod) return mostrarToast(`El código ${codigo} no está registrado. Regístralo en Inventario.`, 'error');
+    if (!prod) {
+      if (!puede('inventario') || productos.length === 0) return mostrarToast(`El código ${codigo} no está registrado. Regístralo en Inventario.`, 'error');
+      setEscaner(null);
+      return setCodigoPorVincular({ codigo, origen: 'venta' });
+    }
     if (agregarProducto(prod)) mostrarToast(`+1 ${prod.nombre}`);
   };
 
-  // Inventario: si el producto existe se agrega un lote; si no, se crea con ese código
-  const registrarPorCodigo = async (codigoLeido) => {
+  // Guarda el código leído en un producto que ya estaba en el inventario
+  const vincularCodigo = async (prod) => {
+    if (!exigir('inventario', 'vincular códigos')) return;
+    const { codigo, origen } = codigoPorVincular;
+    const duenio = buscarProductoPorCodigo(productos, codigo);
+    if (duenio) return alert(`El código ${codigo} ya pertenece a "${duenio.nombre}".`);
+    try {
+      const op = operacion('Código vinculado', `${prod.nombre}: ${codigo}`);
+      op.actualizar(docN('productos', prod.id), { codigos: [...codigosDe(prod), codigo] }, { codigos: codigosDe(prod) });
+      await op.guardar();
+      setCodigoPorVincular(null);
+      if (origen === 'venta') {
+        if (agregarProducto(prod)) mostrarToast(`Código vinculado · +1 ${prod.nombre}`);
+      } else {
+        mostrarToast(`Código ${codigo} vinculado a ${prod.nombre}`);
+      }
+    } catch (error) {
+      alert('Error al vincular el código: ' + error.message);
+    }
+  };
+
+  // El código no era de ningún producto existente: se registra como producto nuevo
+  const registrarCodigoComoNuevo = () => {
+    const { codigo } = codigoPorVincular;
+    setCodigoPorVincular(null);
+    setPestana('inventario');
+    registrarPorCodigo(codigo, true);
+  };
+
+  // Inventario: si el producto existe se agrega un lote; si no, se ofrece vincularlo o crearlo
+  const registrarPorCodigo = async (codigoLeido, esNuevo = false) => {
     if (!exigir('inventario', 'registrar productos')) return;
     const codigo = limpiarCodigo(codigoLeido);
     if (!codigo) return;
     const prod = buscarProductoPorCodigo(productos, codigo);
+    if (!prod && !esNuevo && productos.length > 0) {
+      setEscaner(null);
+      return setCodigoPorVincular({ codigo, origen: 'inventario' });
+    }
     setEditandoProductoId(null);
     setFormularioProductoAbierto(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1374,7 +1414,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     if (escaner === 'formulario' && editandoProductoId) return setFormProducto(f => ({ ...f, codigo: limpiarCodigo(codigo) }));
     return registrarPorCodigo(codigo);
   };
-  useLectorCodigos(alLeerCodigo, !escaner && (pestana === 'ventas' || pestana === 'inventario'));
+  useLectorCodigos(alLeerCodigo, !escaner && !codigoPorVincular && (pestana === 'ventas' || pestana === 'inventario'));
 
   // Registros guardados con la fecha UTC (corrida un día después de las 7 p. m.).
   // La fecha correcta se obtiene del momento exacto en que se crearon (creadoEn).
@@ -3108,6 +3148,16 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         onCodigo={alLeerCodigo}
       />
         </Suspense>
+      )}
+      {codigoPorVincular && (
+        <VincularCodigo
+          codigo={codigoPorVincular.codigo}
+          productos={productos}
+          onVincular={vincularCodigo}
+          onNuevo={registrarCodigoComoNuevo}
+          onCerrar={() => setCodigoPorVincular(null)}
+          textoNuevo={codigoPorVincular.origen === 'venta' ? 'Registrarlo como producto nuevo' : 'Es un producto nuevo'}
+        />
       )}
       {toast && (
         <div
