@@ -63,8 +63,8 @@ export default function ClienteLogin() {
         </div>
 
         <div className="grid grid-cols-2 gap-2 mb-5">
-          <button type="button" onClick={() => cambiarModo('ingreso')} className={`chip justify-center ${!registro ? 'chip-activo' : ''}`}><LogIn size={14} /> Iniciar sesión</button>
-          <button type="button" onClick={() => cambiarModo('registro')} className={`chip justify-center ${registro ? 'chip-activo' : ''}`}><UserPlus size={14} /> Crear cuenta</button>
+          <button type="button" onClick={() => cambiarModo('ingreso')} className={`chip !inline-flex items-center justify-center gap-1.5 ${!registro ? 'chip-activo' : ''}`}><LogIn size={14} /> Iniciar sesión</button>
+          <button type="button" onClick={() => cambiarModo('registro')} className={`chip !inline-flex items-center justify-center gap-1.5 ${registro ? 'chip-activo' : ''}`}><UserPlus size={14} /> Crear cuenta</button>
         </div>
 
         <form onSubmit={enviar} className="space-y-4">
