@@ -34,6 +34,34 @@ export const buscarProductoPorCodigo = (productos, codigo) => {
   return productos.find(p => codigosDe(p).includes(limpio)) || null;
 };
 
+// Sabores: cada sabor de un producto puede tener su propio código ({ codigo: 'Fresa' }).
+// El código también queda en "codigos", así la búsqueda y las etiquetas siguen igual.
+export const codigosSaborDe = (producto) =>
+  producto?.codigosSabor && typeof producto.codigosSabor === 'object' ? producto.codigosSabor : {};
+
+export const saborDeCodigo = (producto, codigo) => codigosSaborDe(producto)[limpiarCodigo(codigo)] || null;
+
+export const codigoDeSabor = (producto, sabor) => {
+  const buscado = String(sabor || '').toLowerCase();
+  return Object.entries(codigosSaborDe(producto)).find(([, s]) => String(s).toLowerCase() === buscado)?.[0] || null;
+};
+
+// Cambios para asignar (o quitar, con codigo vacío) el código de un sabor
+export const cambiosCodigoSabor = (producto, sabor, codigo) => {
+  const mapa = { ...codigosSaborDe(producto) };
+  const anterior = codigoDeSabor(producto, sabor);
+  let codigos = codigosDe(producto);
+  if (anterior) {
+    delete mapa[anterior];
+    codigos = codigos.filter(c => c !== anterior);
+  }
+  if (codigo) {
+    mapa[codigo] = sabor;
+    if (!codigos.includes(codigo)) codigos = [...codigos, codigo];
+  }
+  return { codigos, codigosSabor: mapa };
+};
+
 // Siguiente código interno libre: 20 + secuencia de 10 dígitos + dígito de control
 export const generarCodigoInterno = (productos, reservados = []) => {
   const usados = new Set([...productos.flatMap(codigosDe), ...reservados]);

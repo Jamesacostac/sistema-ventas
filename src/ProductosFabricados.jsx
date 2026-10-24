@@ -6,9 +6,10 @@ import {
 import {
   costoReceta, faltantesReceta, variantesDe, nombreVariante, recetaDe, precioUnitario, precioPorCantidad,
   precioSugerido, gananciaDe, leerCantidad, mostrarCantidad, nuevoId, compararNombres, GANANCIA_POR_DEFECTO,
-  planificarVenta, alcanzaPara, claveVariante
+  planificarVenta, alcanzaPara, claveVariante, combinacionesIncluye, esCombo
 } from './fabricacion';
 import { CATALOGO_NOGURI } from './catalogoNoguri';
+import { CATALOGO_TAZON } from './catalogoTazon';
 
 /**
  * Productos fabricados: cada uno con su receta de materiales, opciones (talla, base, papel...),
@@ -24,7 +25,7 @@ const num = (t) => Number(String(t ?? '').replace(',', '.')) || 0;
 const lineasAForm = (receta) => (receta || []).map(l => ({ k: nuevoId(), materialId: l.materialId, cantidad: mostrarCantidad(l.cantidad) }));
 const lineasADatos = (lineas) => lineas.filter(l => l.materialId).map(l => ({ materialId: l.materialId, cantidad: leerCantidad(l.cantidad) }));
 
-const FORM_VACIO = { nombre: '', categoria: '', precio: '', ganancia: String(GANANCIA_POR_DEFECTO), receta: [], opciones: [], adicionales: [], preciosCantidad: [] };
+const FORM_VACIO = { nombre: '', categoria: '', precio: '', ganancia: String(GANANCIA_POR_DEFECTO), receta: [], opciones: [], adicionales: [], preciosCantidad: [], incluye: [] };
 
 const aForm = (p) => ({
   nombre: p.nombre || '',
@@ -38,7 +39,13 @@ const aForm = (p) => ({
     valores: (o.valores || []).map(v => ({ id: v.id || nuevoId(), nombre: v.nombre, precioExtra: String(v.precioExtra ?? 0), receta: lineasAForm(v.receta) }))
   })),
   adicionales: (p.adicionales || []).map(a => ({ id: a.id || nuevoId(), nombre: a.nombre, precio: String(a.precio ?? 0), receta: lineasAForm(a.receta) })),
-  preciosCantidad: (p.preciosCantidad || []).map(x => ({ k: nuevoId(), cantidad: String(x.cantidad), precio: String(x.precio) }))
+  preciosCantidad: (p.preciosCantidad || []).map(x => ({ k: nuevoId(), cantidad: String(x.cantidad), precio: String(x.precio) })),
+  incluye: (p.incluye || []).map(e => ({
+    id: e.id || nuevoId(),
+    nombre: e.nombre,
+    cantidad: String(e.cantidad ?? 1),
+    opciones: (e.opciones || []).map(o => ({ k: nuevoId(), productoId: o.productoId, precioExtra: String(o.precioExtra ?? 0) }))
+  }))
 });
 
 const aDatos = (f) => ({
@@ -58,12 +65,39 @@ const aDatos = (f) => ({
   preciosCantidad: f.preciosCantidad
     .map(x => ({ cantidad: Math.round(num(x.cantidad)), precio: num(x.precio) }))
     .filter(x => x.cantidad > 1 && x.precio > 0)
-    .sort((a, b) => a.cantidad - b.cantidad)
+    .sort((a, b) => a.cantidad - b.cantidad),
+  incluye: (f.incluye || [])
+    .filter(e => e.nombre.trim() && e.opciones.some(o => o.productoId))
+    .map(e => ({
+      id: e.id,
+      nombre: e.nombre.trim(),
+      cantidad: Math.max(1, Math.round(num(e.cantidad))),
+      opciones: e.opciones.filter(o => o.productoId).map(o => ({ productoId: o.productoId, precioExtra: num(o.precioExtra) }))
+    }))
 });
 
+// Costo y precio de cada variante: opciones elegidas × lo incluido del inventario (en los combos)
+const filasCostos = (producto, materialesPorId, inventarioPorId) =>
+  variantesDe(producto).flatMap(eleccion => combinacionesIncluye(producto).map(combo => {
+    const receta = recetaDe(producto, eleccion);
+    const costoIncluido = combo.reduce((s, { espacio, opcion }) => s + (Number(inventarioPorId[opcion.productoId]?.costo) || 0) * (Number(espacio.cantidad) || 1), 0);
+    const extra = combo.reduce((s, { opcion }) => s + (Number(opcion.precioExtra) || 0), 0);
+    const nombreIncluido = combo.filter(({ espacio }) => espacio.opciones.length > 1).map(({ opcion }) => inventarioPorId[opcion.productoId]?.nombre || '(borrado)').join(' + ');
+    return {
+      nombre: [nombreVariante(eleccion), nombreIncluido].filter(Boolean).join(' · ') || 'Único',
+      costo: costoReceta(receta, materialesPorId) + costoIncluido,
+      costoPedido: costoReceta(receta, materialesPorId, true) + costoIncluido,
+      precio: precioUnitario(producto, eleccion) + extra,
+      faltan: [
+        ...faltantesReceta(receta, materialesPorId),
+        ...combo.filter(({ opcion }) => !inventarioPorId[opcion.productoId]).map(() => 'un producto incluido que ya no existe')
+      ]
+    };
+  }));
+
 // Costo de la variante más barata (el "costo" que ve el resto de la app)
-const costoMinimo = (producto, materialesPorId) => {
-  const costos = variantesDe(producto).map(e => costoReceta(recetaDe(producto, e), materialesPorId));
+const costoMinimo = (producto, materialesPorId, inventarioPorId) => {
+  const costos = filasCostos(producto, materialesPorId, inventarioPorId).map(f => f.costo);
   return costos.length ? Math.min(...costos) : 0;
 };
 
@@ -111,19 +145,13 @@ function EditorReceta({ lineas, onChange, materiales, materialesPorId, compacto 
 
 // ---------- Tabla de costos y ganancia de un producto ----------
 
-function TablaCostos({ producto, materialesPorId }) {
+function TablaCostos({ producto, materialesPorId, inventarioPorId }) {
   const ganancia = Number(producto.ganancia ?? GANANCIA_POR_DEFECTO);
-  const filas = variantesDe(producto).map(eleccion => {
-    const receta = recetaDe(producto, eleccion);
-    const costo = costoReceta(receta, materialesPorId);
-    const costoPedido = costoReceta(receta, materialesPorId, true);
-    const precio = precioUnitario(producto, eleccion);
-    return {
-      nombre: nombreVariante(eleccion) || 'Único', costo, costoPedido, precio,
-      g: gananciaDe(precio, costo), gPedido: gananciaDe(precio, costoPedido),
-      sugerido: precioSugerido(costo, ganancia), faltan: faltantesReceta(receta, materialesPorId)
-    };
-  });
+  const filas = filasCostos(producto, materialesPorId, inventarioPorId).map(f => ({
+    ...f,
+    g: gananciaDe(f.precio, f.costo), gPedido: gananciaDe(f.precio, f.costoPedido),
+    sugerido: precioSugerido(f.costo, ganancia)
+  }));
   const masBarata = filas.reduce((a, b) => (b.costo < a.costo ? b : a), filas[0]);
   const hayPedido = filas.some(f => f.costoPedido !== f.costo);
 
@@ -208,6 +236,9 @@ export default function ProductosFabricados({ productos, materiales, categorias,
     () => [...materiales].sort((a, b) => (a.grupo || '').localeCompare(b.grupo || '', 'es') || compararNombres(a.nombre, b.nombre)),
     [materiales]
   );
+  // Productos del inventario (bebidas, mecato...) que pueden ir incluidos en un combo
+  const inventario = useMemo(() => productos.filter(p => !p.fabricado).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')), [productos]);
+  const inventarioPorId = useMemo(() => Object.fromEntries(inventario.map(p => [p.id, p])), [inventario]);
   const fabricados = productos.filter(p => p.fabricado).sort((a, b) => (a.categoria || '').localeCompare(b.categoria || '', 'es') || compararNombres(a.nombre, b.nombre));
   const nombresCategorias = [...new Set([...categorias.map(c => c.nombre), ...fabricados.map(p => p.categoria)].filter(c => c && c !== 'Sin categoría'))];
 
@@ -219,6 +250,8 @@ export default function ProductosFabricados({ productos, materiales, categorias,
   const setOpcion = (id, cambios) => set('opciones', form.opciones.map(o => (o.id === id ? { ...o, ...cambios } : o)));
   const setValor = (oid, vid, cambios) => setOpcion(oid, { valores: form.opciones.find(o => o.id === oid).valores.map(v => (v.id === vid ? { ...v, ...cambios } : v)) });
   const setAdicional = (id, cambios) => set('adicionales', form.adicionales.map(a => (a.id === id ? { ...a, ...cambios } : a)));
+  const setEspacio = (id, cambios) => set('incluye', form.incluye.map(e => (e.id === id ? { ...e, ...cambios } : e)));
+  const setOpcionIncluida = (eid, k, cambios) => setEspacio(eid, { opciones: form.incluye.find(e => e.id === eid).opciones.map(o => (o.k === k ? { ...o, ...cambios } : o)) });
 
   const guardar = async () => {
     if (!puedeEditar || !form) return;
@@ -227,7 +260,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
     if (!(datos.precio > 0)) return setEstado({ tipo: 'error', texto: 'Escribe el precio de venta.' });
     const repetido = productos.find(p => p.id !== editandoId && p.nombre.toLowerCase() === datos.nombre.toLowerCase());
     if (repetido) return setEstado({ tipo: 'error', texto: `Ya existe un producto llamado "${repetido.nombre}".` });
-    const costo = costoMinimo(datos, materialesPorId);
+    const costo = costoMinimo(datos, materialesPorId, inventarioPorId);
 
     setGuardando(true);
     setEstado(null);
@@ -318,6 +351,81 @@ export default function ProductosFabricados({ productos, materiales, categorias,
     }
   };
 
+  // Crea los materiales, platos y combos de Tazón para Dos que todavía no existan.
+  // Las bebidas y el mecato de los combos se buscan por nombre en el inventario.
+  const combosTazonPendientes = CATALOGO_TAZON.productos.filter(p => !productos.some(x => x.nombre.toLowerCase() === p.nombre.toLowerCase()));
+  const cargarCombosTazon = async () => {
+    if (!puedeEditar) return;
+    const { materiales: mats } = CATALOGO_TAZON;
+    if (!confirm(`Se crearán ${combosTazonPendientes.length} platos y combos (y los materiales de empanadas y nuggets que falten, con stock 0). Los que ya existan con el mismo nombre se dejan como están. ¿Continuar?`)) return;
+    setGuardando(true);
+    setEstado(null);
+    try {
+      const op = operacion('Platos y combos de Tazón cargados', `${combosTazonPendientes.length} productos`);
+      const idPorClave = {};
+      const materialesTemp = { ...materialesPorId };
+      let nuevosMateriales = 0;
+      mats.forEach(m => {
+        const existente = materiales.find(x => x.nombre.toLowerCase() === m.nombre.toLowerCase());
+        if (existente) { idPorClave[m.clave] = existente.id; return; }
+        const { clave, ...datos } = m;
+        const id = op.crear(doc(col('materiales')), { ...datos, minimo: 0 }).id;
+        idPorClave[clave] = id;
+        materialesTemp[id] = { id, ...datos };
+        nuevosMateriales++;
+      });
+      const idProducto = (nombre) => inventario.find(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase())?.id;
+      const noEncontrados = new Set();
+      combosTazonPendientes.forEach(p => {
+        const incluye = (p.incluye || []).map(e => ({
+          id: nuevoId(),
+          nombre: e.nombre,
+          cantidad: e.cantidad,
+          opciones: e.opciones
+            .map(o => {
+              const productoId = idProducto(o.producto);
+              if (!productoId) noEncontrados.add(o.producto);
+              return productoId ? { productoId, precioExtra: o.precioExtra } : null;
+            })
+            .filter(Boolean)
+        }));
+        const datos = {
+          nombre: p.nombre,
+          categoria: p.categoria,
+          precio: p.precio,
+          ganancia: 50,
+          receta: (p.receta || []).map(l => ({ materialId: idPorClave[l.material], cantidad: l.cantidad })),
+          opciones: [],
+          adicionales: [],
+          preciosCantidad: p.preciosCantidad || [],
+          incluye: incluye.filter(e => e.opciones.length > 0)
+        };
+        op.crear(doc(col('productos')), {
+          ...datos,
+          costo: costoMinimo(datos, materialesTemp, inventarioPorId),
+          listos: {},
+          fabricado: true,
+          codigos: [],
+          stock: 0,
+          lotes: []
+        });
+      });
+      const nuevasCategorias = [...new Set(combosTazonPendientes.map(p => p.categoria))].filter(c => !categorias.some(x => x.nombre.toLowerCase() === c.toLowerCase()));
+      nuevasCategorias.forEach(nombre => op.crear(doc(col('categorias')), { nombre }));
+      await op.guardar();
+      setEstado({
+        tipo: noEncontrados.size ? 'error' : 'ok',
+        texto: `Listo: ${combosTazonPendientes.length} plato(s) y combo(s) y ${nuevosMateriales} material(es).`
+          + (noEncontrados.size ? ` No se encontraron en el inventario: ${[...noEncontrados].join(', ')} (quedaron fuera de los combos).` : '')
+          + ' Registra las bolsas de empanadas y nuggets en Inventario → Materiales.'
+      });
+    } catch (err) {
+      setEstado({ tipo: 'error', texto: 'No se pudieron cargar los combos: ' + err.message });
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const vista = form ? aDatos(form) : null;
   const editorReceta = (lineas, onChange, compacto) => (
     <EditorReceta lineas={lineas} onChange={onChange} materiales={materialesOrdenados} materialesPorId={materialesPorId} compacto={compacto} />
@@ -333,6 +441,9 @@ export default function ProductosFabricados({ productos, materiales, categorias,
         <div className="flex flex-wrap gap-2">
           {fabricados.length === 0 && /noguri/i.test(negocio?.nombre || '') && (
             <button onClick={cargarCatalogo} disabled={!puedeEditar || guardando} className="btn btn-claro"><Sparkles size={16} /> Cargar catálogo de Noguri</button>
+          )}
+          {combosTazonPendientes.length > 0 && /taz[oó]n/i.test(negocio?.nombre || '') && (
+            <button onClick={cargarCombosTazon} disabled={!puedeEditar || guardando} className="btn btn-claro"><Sparkles size={16} /> Cargar platos y combos</button>
           )}
           <button onClick={abrirNuevo} disabled={!puedeEditar || !!form} className="btn btn-primario"><Plus size={16} /> Nuevo producto</button>
         </div>
@@ -436,6 +547,51 @@ export default function ProductosFabricados({ productos, materiales, categorias,
             </button>
           </section>
 
+          <section className="space-y-3">
+            <div>
+              <h4 className="font-bold text-tinta text-sm">Incluye del inventario (combos)</h4>
+              <p className="text-xs text-gris-calido">
+                Productos del inventario que van en el combo, como la bebida o un paquete de papas. Si un espacio tiene varias opciones,
+                al vender se elige cuál (y su sabor) y se descuenta de sus lotes. El precio extra se suma al del combo.
+              </p>
+            </div>
+            {form.incluye.map(e => (
+              <div key={e.id} className="rounded-xl border-[1.5px] border-linea p-3 md:p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <input value={e.nombre} onChange={(ev) => setEspacio(e.id, { nombre: ev.target.value })} className="campo font-semibold" placeholder="Ej. Bebida" />
+                  <label className="text-xs text-gris-calido flex items-center gap-1.5 whitespace-nowrap">
+                    Cantidad
+                    <input type="number" min="1" step="1" value={e.cantidad} onChange={(ev) => setEspacio(e.id, { cantidad: ev.target.value })} className="campo !w-20 text-right" />
+                  </label>
+                  <button type="button" onClick={() => set('incluye', form.incluye.filter(x => x.id !== e.id))} className="btn-icono btn-icono-peligro" title="Quitar espacio"><Trash2 size={15} /></button>
+                </div>
+                {e.opciones.map(o => {
+                  const prod = inventarioPorId[o.productoId];
+                  return (
+                    <div key={o.k} className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                      <select value={o.productoId} onChange={(ev) => setOpcionIncluida(e.id, o.k, { productoId: ev.target.value })} className="campo flex-1 min-w-[12rem]">
+                        <option value="">Elige un producto…</option>
+                        {inventario.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                      </select>
+                      <label className="text-xs text-gris-calido flex items-center gap-1.5 whitespace-nowrap">
+                        Precio +
+                        <input type="number" step="100" value={o.precioExtra} onChange={(ev) => setOpcionIncluida(e.id, o.k, { precioExtra: ev.target.value })} className="campo !w-24 text-right" />
+                      </label>
+                      <span className="text-xs text-gris-calido w-24 shrink-0 whitespace-nowrap">{prod ? `cuesta ${dinero(prod.costo)}` : ''}</span>
+                      <button type="button" onClick={() => setEspacio(e.id, { opciones: e.opciones.filter(x => x.k !== o.k) })} className="btn-icono btn-icono-peligro" title="Quitar"><X size={15} /></button>
+                    </div>
+                  );
+                })}
+                <button type="button" onClick={() => setEspacio(e.id, { opciones: [...e.opciones, { k: nuevoId(), productoId: '', precioExtra: '0' }] })} className="btn btn-claro btn-sm">
+                  <Plus size={14} /> Opción
+                </button>
+              </div>
+            ))}
+            <button type="button" onClick={() => set('incluye', [...form.incluye, { id: nuevoId(), nombre: '', cantidad: '1', opciones: [{ k: nuevoId(), productoId: '', precioExtra: '0' }] }])} className="btn btn-claro btn-sm">
+              <Plus size={14} /> Espacio (ej. Bebida)
+            </button>
+          </section>
+
           <section className="space-y-2">
             <div>
               <h4 className="font-bold text-tinta text-sm">Precios por cantidad</h4>
@@ -456,7 +612,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
 
           <section className="space-y-2">
             <h4 className="font-bold text-tinta text-sm flex items-center gap-2"><Calculator size={16} /> Costo y ganancia</h4>
-            <TablaCostos producto={vista} materialesPorId={materialesPorId} />
+            <TablaCostos producto={vista} materialesPorId={materialesPorId} inventarioPorId={inventarioPorId} />
           </section>
 
           {estado && <p className={`aviso ${estado.tipo === 'error' ? 'aviso-error' : 'aviso-ok'}`}>{estado.texto}</p>}
@@ -472,10 +628,7 @@ export default function ProductosFabricados({ productos, materiales, categorias,
       ) : (
         <div className="space-y-3">
           {fabricados.map(p => {
-            const variantes = variantesDe(p).map(e => {
-              const receta = recetaDe(p, e);
-              return { costo: costoReceta(receta, materialesPorId), costoPedido: costoReceta(receta, materialesPorId, true), precio: precioUnitario(p, e), faltan: faltantesReceta(receta, materialesPorId).length };
-            });
+            const variantes = filasCostos(p, materialesPorId, inventarioPorId).map(f => ({ ...f, faltan: f.faltan.length }));
             const costos = variantes.map(v => v.costo);
             const precios = variantes.map(v => v.precio);
             // Rango de ganancia: la peor (comprando por pedido) y la mejor (con lo que hay en stock)
@@ -519,8 +672,14 @@ export default function ProductosFabricados({ productos, materiales, categorias,
                         <Layers size={13} /> Siempre gasta: {p.receta.map(l => `${mostrarCantidad(l.cantidad)} ${materialesPorId[l.materialId]?.nombre || '(material borrado)'}`).join(', ')}
                       </p>
                     )}
-                    <TablaCostos producto={p} materialesPorId={materialesPorId} />
-                    <ListosProducto producto={p} materialesPorId={materialesPorId} puedeEditar={puedeEditar} operacion={operacion} docN={docN} />
+                    {esCombo(p) && (
+                      <p className="text-xs text-gris-calido flex flex-wrap items-center gap-1.5">
+                        <PackageCheck size={13} /> Incluye: {p.incluye.map(e => `${e.cantidad > 1 ? `${e.cantidad} ` : ''}${e.opciones.length > 1 ? `${e.nombre} (${e.opciones.map(o => inventarioPorId[o.productoId]?.nombre || '(borrado)').join(', ')})` : inventarioPorId[e.opciones[0].productoId]?.nombre || '(borrado)'}`).join(' + ')}
+                      </p>
+                    )}
+                    <TablaCostos producto={p} materialesPorId={materialesPorId} inventarioPorId={inventarioPorId} />
+                    {/* Un combo no se arma por adelantado: lo incluido sale del inventario al vender */}
+                    {!esCombo(p) && <ListosProducto producto={p} materialesPorId={materialesPorId} puedeEditar={puedeEditar} operacion={operacion} docN={docN} />}
                   </div>
                 )}
               </div>

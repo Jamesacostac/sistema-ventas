@@ -6,6 +6,9 @@
 //   adicionales:     [{ id, nombre, precio, receta }]      se suman si el cliente los pide
 //   preciosCantidad: [{ cantidad, precio }]                 p. ej. 2 botones por $2.000
 //   ganancia:        % de ganancia deseada sobre el costo (para el precio sugerido)
+//   incluye:         [{ id, nombre, cantidad, opciones: [{ productoId, precioExtra }] }]
+//                    combos: productos del inventario que van incluidos (p. ej. "Bebida"). Al vender se
+//                    elige uno de cada espacio y su sabor, y se descuenta de sus lotes.
 // Los materiales viven en materiales/{id}: { nombre, grupo, unidad, costo (por unidad), costoPedido, stock, minimo }.
 // costo es el de comprarlo para tener en stock; costoPedido (opcional) el de comprarlo cuando llega el pedido.
 
@@ -202,4 +205,40 @@ export const alcanzaPara = (producto, valores, materialesPorId) => {
   receta.forEach(l => { if (Number(l.cantidad) > 0) porMaterial[l.materialId] = (porMaterial[l.materialId] || 0) + Number(l.cantidad); });
   const limites = Object.entries(porMaterial).map(([id, cant]) => Math.floor((Number(materialesPorId[id]?.stock) || 0) / cant + 1e-9));
   return limites.length ? Math.max(0, Math.min(...limites)) : null;
+};
+
+// ---------- Combos: productos del inventario incluidos ----------
+//
+// Lo elegido al vender un combo: [{ espacioId, productoId, nombre, variante, cantidad, costo }]
+// (variante = sabor del lote o 'TODAS' para sacar el que vence primero).
+
+export const incluyeDe = (producto) => (producto?.incluye || []).filter(e => (e.opciones || []).length > 0);
+
+export const esCombo = (producto) => incluyeDe(producto).length > 0;
+
+// Precio extra de lo elegido (p. ej. Te Hatsu +$500 frente al Hit)
+export const precioExtraElegidos = (producto, elegidos = []) =>
+  elegidos.reduce((s, e) => {
+    const espacio = incluyeDe(producto).find(x => x.id === e.espacioId);
+    const opcion = espacio?.opciones.find(o => o.productoId === e.productoId);
+    return s + (Number(opcion?.precioExtra) || 0);
+  }, 0);
+
+// Costo de lo elegido para UNA unidad del combo
+export const costoElegidos = (elegidos = []) => elegidos.reduce((s, e) => s + (Number(e.costo) || 0) * (Number(e.cantidad) || 0), 0);
+
+export const claveElegidos = (elegidos = []) => elegidos.map(e => `${e.productoId}:${e.variante || 'TODAS'}`).join('|');
+
+// "Hit Tetrapack 200ml (Mora) · 3 moritas caramelo"
+export const descripcionElegidos = (elegidos = []) =>
+  elegidos.map(e => `${e.cantidad > 1 ? `${e.cantidad} ` : ''}${e.nombre}${e.variante && e.variante !== 'TODAS' ? ` (${e.variante})` : ''}`).join(' · ');
+
+// Todas las formas de llenar los espacios (para la tabla de costos). Máximo 60.
+export const combinacionesIncluye = (producto) => {
+  let combinaciones = [[]];
+  for (const espacio of incluyeDe(producto)) {
+    combinaciones = combinaciones.flatMap(c => espacio.opciones.map(opcion => [...c, { espacio, opcion }]));
+    if (combinaciones.length > 60) return combinaciones.slice(0, 60);
+  }
+  return combinaciones;
 };

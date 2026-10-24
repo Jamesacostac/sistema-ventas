@@ -21,7 +21,7 @@ import Recorrido from './Recorrido';
 import CajaBase from './CajaBase';
 import BajasLotes from './BajasLotes';
 import VincularCodigo from './VincularCodigo';
-import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario } from './fabricacion';
+import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario, esCombo, claveElegidos, descripcionElegidos, costoElegidos } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
 import { MenuDesplegable, MenuItem, MenuSeparador, MenuTitulo, Plegable, usePantalla } from './ui';
@@ -29,7 +29,7 @@ import { useLectorCodigos } from './lectorCodigos';
 // La cámara y las etiquetas usan librerías pesadas: se cargan solo cuando se abren
 const Etiquetas = lazy(() => import('./Etiquetas'));
 const EscanerCamara = lazy(() => import('./Escaner').then(m => ({ default: m.EscanerCamara })));
-import { codigosDe, buscarProductoPorCodigo, generarCodigoInterno, consultarOpenFoodFacts, esCodigoInterno, limpiarCodigo } from './codigos';
+import { codigosDe, buscarProductoPorCodigo, generarCodigoInterno, consultarOpenFoodFacts, esCodigoInterno, limpiarCodigo, codigosSaborDe, saborDeCodigo, codigoDeSabor, cambiosCodigoSabor } from './codigos';
 import {
   CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
@@ -315,6 +315,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   const [buscandoNombre, setBuscandoNombre] = useState(false);
   // Código leído que no está registrado: se ofrece vincularlo a un producto existente
   const [codigoPorVincular, setCodigoPorVincular] = useState(null); // { codigo, origen: 'venta' | 'inventario' }
+  // Sabor al que se le está escaneando el código desde la lista del inventario
+  const [saborPorEscanear, setSaborPorEscanear] = useState(null); // { productoId, sabor }
   const mostrarToast = (texto, tipo = 'ok') => setToast({ texto, tipo, id: Date.now() });
   useEffect(() => {
     if (!toast) return;
@@ -673,11 +675,14 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   // Si un mismo producto aparece varias veces, los descuentos se acumulan.
   // Primero se descuentan las variantes específicas y al final las "Automático (FEFO)",
   // para que el automático no consuma lotes que otra línea pidió explícitamente.
+  // Los combos descuentan lo que incluyen del inventario (la bebida elegida, el mecato...).
   const simularCarrito = (items) => {
     const lotesPorProducto = {};
-    const ordenados = [...items].sort((a, b) => (a.variante === 'TODAS') - (b.variante === 'TODAS'));
+    const delInventario = items.flatMap(item => (item.fabricado
+      ? (item.elegidos || []).map(e => ({ productoId: e.productoId, nombre: e.nombre, variante: e.variante || 'TODAS', cantidad: e.cantidad * item.cantidad }))
+      : [item]));
+    const ordenados = [...delInventario].sort((a, b) => (a.variante === 'TODAS') - (b.variante === 'TODAS'));
     for (const item of ordenados) {
-      if (item.fabricado) continue;
       const prod = productos.find(p => p.id === item.productoId);
       if (!prod) return { error: `El producto "${item.nombre}" ya no existe en el inventario.` };
 
@@ -728,13 +733,15 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   };
 
   // Producto fabricado: cada combinación de opciones y adicionales es una línea del pedido.
-  // No se valida stock: lo que no esté listo se arma al vender (ver planificarVenta).
-  const agregarFabricado = (prod, { valores = [], adicionales = [], cantidad = 1, precio }) => {
+  // No se valida stock de materiales: lo que no esté listo se arma al vender (ver planificarVenta).
+  // En los combos sí se valida lo incluido del inventario (la bebida y su sabor).
+  const agregarFabricado = (prod, { valores = [], adicionales = [], cantidad = 1, precio, elegidos = [] }) => {
     if (!exigir('ventas', 'registrar ventas')) return false;
     const extras = [...adicionales].sort();
     const existente = carrito.find(i => i.fabricado && i.productoId === prod.id
-      && claveVariante(i.valores) === claveVariante(valores) && claveVariante(i.adicionales) === claveVariante(extras));
-    setCarrito(existente
+      && claveVariante(i.valores) === claveVariante(valores) && claveVariante(i.adicionales) === claveVariante(extras)
+      && claveElegidos(i.elegidos) === claveElegidos(elegidos));
+    const carritoNuevo = existente
       ? carrito.map(i => (i === existente ? { ...i, cantidad: i.cantidad + cantidad } : i))
       : [...carrito, {
           key: `${prod.id}_${Date.now()}`,
@@ -743,10 +750,17 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           fabricado: true,
           valores,
           adicionales: extras,
-          variante: descripcionLinea(prod, valores, extras),
+          elegidos,
+          variante: [descripcionLinea(prod, valores, extras), descripcionElegidos(elegidos)].filter(Boolean).join(' · '),
           cantidad,
           precio: precio ?? (Number(prod.precio) || 0)
-        }]);
+        }];
+    const { error } = simularCarrito(carritoNuevo);
+    if (error) {
+      alert(`❌ ${error}`);
+      return false;
+    }
+    setCarrito(carritoNuevo);
     return true;
   };
 
@@ -848,7 +862,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       carrito.forEach(item => {
         const plan = item.fabricado ? planFab.lineas[lineasFab.indexOf(item)] : null;
         const total = formVenta.staff ? 0 : totalItem(item);
-        const costoTotal = plan ? plan.costoTotal : item.costo * item.cantidad;
+        const costoTotal = plan ? plan.costoTotal + costoElegidos(item.elegidos) * item.cantidad : item.costo * item.cantidad;
         op.crear(doc(col('ventas')), {
           fecha,
           cliente,
@@ -864,6 +878,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           pedidoId,
           creadoEn,
           ...(plan && { fabricado: true, productoId: item.productoId, deListos: plan.deListos, consumo: plan.consumo }),
+          ...(item.elegidos?.length > 0 && { incluidos: item.elegidos }),
           ...(formVenta.staff && { staff: true, precioNormal: totalItem(item) })
         });
       });
@@ -994,6 +1009,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           categoria: formProducto.categoria || 'Sin categoría',
           codigos: codigoNuevo ? [codigoNuevo, ...otrosCodigos] : otrosCodigos
         };
+        // Los sabores conservan solo los códigos que siguen en el producto
+        cambios.codigosSabor = Object.fromEntries(
+          Object.entries(codigosSaborDe(prodObj)).filter(([c]) => cambios.codigos.includes(c))
+        );
         let detalle = `${cambios.nombre}: costo $${cambios.costo}, precio $${cambios.precio}`;
 
         if (formProducto.cantidad && formProducto.vencimiento) {
@@ -1061,6 +1080,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
             precio: Number(formProducto.precio),
             categoria: formProducto.categoria || 'Sin categoría',
             codigos: codigoNuevo ? [codigoNuevo] : [],
+            // El código escaneado al crear el producto es el del sabor de su primer lote
+            codigosSabor: codigoNuevo && formProducto.variante && formProducto.variante !== 'General'
+              ? { [codigoNuevo]: formProducto.variante }
+              : {},
             stock: cant,
             lotes: [
               {
@@ -1318,27 +1341,63 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       setEscaner(null);
       return setCodigoPorVincular({ codigo, origen: 'venta' });
     }
-    if (agregarProducto(prod)) mostrarToast(`+1 ${prod.nombre}`);
+    // Si el código es de un sabor, se agrega ese sabor; si no, el lote que vence primero
+    const sabor = saborDeCodigo(prod, codigo);
+    if (agregarProducto(prod, sabor || 'TODAS')) mostrarToast(`+1 ${prod.nombre}${sabor ? ` (${sabor})` : ''}`);
   };
 
-  // Guarda el código leído en un producto que ya estaba en el inventario
-  const vincularCodigo = async (prod) => {
+  // Sabores de un producto: las variantes de sus lotes y los que ya tienen código
+  const saboresDe = (prod) => [...new Set([
+    ...obtenerLotesNorm(prod).map(l => l.variante),
+    ...Object.values(codigosSaborDe(prod))
+  ].filter(s => s && s !== 'General' && s !== prod.nombre))];
+
+  // Guarda el código leído en un producto que ya estaba en el inventario (y en su sabor, si se eligió)
+  const vincularCodigo = async (prod, sabor = null) => {
     if (!exigir('inventario', 'vincular códigos')) return;
     const { codigo, origen } = codigoPorVincular;
     const duenio = buscarProductoPorCodigo(productos, codigo);
     if (duenio) return alert(`El código ${codigo} ya pertenece a "${duenio.nombre}".`);
     try {
-      const op = operacion('Código vinculado', `${prod.nombre}: ${codigo}`);
-      op.actualizar(docN('productos', prod.id), { codigos: [...codigosDe(prod), codigo] }, { codigos: codigosDe(prod) });
+      const cambios = sabor ? cambiosCodigoSabor(prod, sabor, codigo) : { codigos: [...codigosDe(prod), codigo] };
+      const op = operacion('Código vinculado', `${prod.nombre}${sabor ? ` (${sabor})` : ''}: ${codigo}`);
+      op.actualizar(docN('productos', prod.id), cambios, { codigos: codigosDe(prod), codigosSabor: codigosSaborDe(prod) });
       await op.guardar();
       setCodigoPorVincular(null);
+      const nombre = `${prod.nombre}${sabor ? ` (${sabor})` : ''}`;
       if (origen === 'venta') {
-        if (agregarProducto(prod)) mostrarToast(`Código vinculado · +1 ${prod.nombre}`);
+        if (agregarProducto(prod, sabor || 'TODAS')) mostrarToast(`Código vinculado · +1 ${nombre}`);
+      } else if (sabor && !obtenerLotesNorm(prod).some(l => l.variante.toLowerCase() === sabor.toLowerCase())) {
+        // Sabor nuevo sin unidades: se abre el formulario para registrar su primer lote
+        abrirFormularioLote(prod, sabor, codigo);
+        mostrarToast(`Código vinculado a ${nombre}: escribe la cantidad y el vencimiento`, 'info');
       } else {
-        mostrarToast(`Código ${codigo} vinculado a ${prod.nombre}`);
+        mostrarToast(`Código ${codigo} vinculado a ${nombre}`);
       }
     } catch (error) {
       alert('Error al vincular el código: ' + error.message);
+    }
+  };
+
+  // Código de un sabor desde el inventario: escanear (o quitar) el código de cada sabor
+  const asignarCodigoSabor = async (productoId, sabor, codigoLeido) => {
+    if (!exigir('inventario', 'asignar códigos')) return;
+    const prod = productos.find(p => p.id === productoId);
+    if (!prod) return;
+    const codigo = limpiarCodigo(codigoLeido);
+    if (codigo) {
+      const duenio = buscarProductoPorCodigo(productos, codigo);
+      if (duenio && duenio.id !== prod.id) return alert(`El código ${codigo} ya pertenece a "${duenio.nombre}".`);
+    } else if (!confirm(`¿Quitar el código del sabor "${sabor}" de ${prod.nombre}?`)) {
+      return;
+    }
+    try {
+      const op = operacion(codigo ? 'Código de sabor asignado' : 'Código de sabor quitado', `${prod.nombre} (${sabor})${codigo ? `: ${codigo}` : ''}`);
+      op.actualizar(docN('productos', prod.id), cambiosCodigoSabor(prod, sabor, codigo), { codigos: codigosDe(prod), codigosSabor: codigosSaborDe(prod) });
+      await op.guardar();
+      mostrarToast(codigo ? `${prod.nombre} (${sabor}): código ${codigo}` : `Se quitó el código de ${sabor}`);
+    } catch (error) {
+      alert('Error al guardar el código: ' + error.message);
     }
   };
 
@@ -1348,6 +1407,24 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     setCodigoPorVincular(null);
     setPestana('inventario');
     registrarPorCodigo(codigo, true);
+  };
+
+  // Formulario de lote nuevo para un producto existente (con el sabor indicado, si hay)
+  const abrirFormularioLote = (prod, sabor, codigo) => {
+    const lotes = obtenerLotesNorm(prod);
+    setEditandoProductoId(null);
+    setFormularioProductoAbierto(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setFormProducto({
+      ...FORM_PRODUCTO_VACIO,
+      productoId: prod.id,
+      nombre: prod.nombre,
+      costo: prod.costo ?? '',
+      precio: prod.precio ?? '',
+      categoria: prod.categoria || '',
+      variante: sabor || lotes[lotes.length - 1]?.variante || 'General',
+      codigo
+    });
   };
 
   // Inventario: si el producto existe se agrega un lote; si no, se ofrece vincularlo o crearlo
@@ -1360,26 +1437,17 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       setEscaner(null);
       return setCodigoPorVincular({ codigo, origen: 'inventario' });
     }
-    setEditandoProductoId(null);
-    setFormularioProductoAbierto(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-
     if (prod) {
-      const lotes = obtenerLotesNorm(prod);
-      setFormProducto({
-        ...FORM_PRODUCTO_VACIO,
-        productoId: prod.id,
-        nombre: prod.nombre,
-        costo: prod.costo ?? '',
-        precio: prod.precio ?? '',
-        categoria: prod.categoria || '',
-        variante: lotes[lotes.length - 1]?.variante || 'General',
-        codigo
-      });
-      mostrarToast(`${prod.nombre}: escribe la cantidad y el vencimiento del lote nuevo`, 'info');
+      // Si el código es de un sabor, el lote nuevo queda con ese sabor
+      const sabor = saborDeCodigo(prod, codigo);
+      abrirFormularioLote(prod, sabor, codigo);
+      mostrarToast(`${prod.nombre}${sabor ? ` (${sabor})` : ''}: escribe la cantidad y el vencimiento del lote nuevo`, 'info');
       return;
     }
 
+    setEditandoProductoId(null);
+    setFormularioProductoAbierto(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     setFormProducto({ ...FORM_PRODUCTO_VACIO, codigo });
     setBuscandoNombre(true);
     const info = await consultarOpenFoodFacts(codigo);
@@ -1410,11 +1478,17 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
   // Lo que se lee con la cámara o el lector va a la pantalla correspondiente
   const alLeerCodigo = (codigo) => {
+    if (escaner === 'sabor' && saborPorEscanear) {
+      setEscaner(null);
+      setSaborPorEscanear(null);
+      return asignarCodigoSabor(saborPorEscanear.productoId, saborPorEscanear.sabor, codigo);
+    }
     if (escaner === 'venta' || (!escaner && pestana === 'ventas')) return venderPorCodigo(codigo);
     if (escaner === 'formulario' && editandoProductoId) return setFormProducto(f => ({ ...f, codigo: limpiarCodigo(codigo) }));
     return registrarPorCodigo(codigo);
   };
-  useLectorCodigos(alLeerCodigo, !escaner && !codigoPorVincular && (pestana === 'ventas' || pestana === 'inventario'));
+  // Con la ventana del código de un sabor abierta también sirve el lector USB/Bluetooth
+  useLectorCodigos(alLeerCodigo, (!escaner || escaner === 'sabor') && !codigoPorVincular && (pestana === 'ventas' || pestana === 'inventario'));
 
   // Registros guardados con la fecha UTC (corrida un día después de las 7 p. m.).
   // La fecha correcta se obtiene del momento exacto en que se crearon (creadoEn).
@@ -1777,6 +1851,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         <SelectorFabricado
           producto={eligiendoFabricado}
           materialesPorId={materialesPorId}
+          inventarioPorId={Object.fromEntries(productos.map(p => [p.id, { ...p, lotes: obtenerLotesNorm(p) }]))}
           onCerrar={() => setEligiendoFabricado(null)}
           onAgregar={(linea) => { if (agregarFabricado(eligiendoFabricado, linea)) setEligiendoFabricado(null); }}
         />
@@ -1836,7 +1911,8 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         // Materiales que no alcanzan para lo que hay en el pedido (se compran por pedido)
         const planPedido = planificarVenta(carrito.filter(i => i.fabricado), fabricadosPorId, materialesPorId);
         const costoPedido = carrito.filter(i => !i.fabricado).reduce((s, i) => s + i.costo * i.cantidad, 0)
-          + planPedido.lineas.reduce((s, l) => s + (l.costoTotal || 0), 0);
+          + planPedido.lineas.reduce((s, l) => s + (l.costoTotal || 0), 0)
+          + carrito.filter(i => i.fabricado).reduce((s, i) => s + costoElegidos(i.elegidos) * i.cantidad, 0);
 
         // Contenido del pedido (columna en PC, ventana flotante en las demás pantallas)
         const contenidoPedido = (
@@ -2106,7 +2182,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                   const precios = variantesDe(p).map(e => precioUnitario(p, e));
                   const desde = Math.min(...precios);
                   const listos = Object.values(p.listos || {}).reduce((a, n) => a + (Number(n) || 0), 0);
-                  const conOpciones = (p.opciones || []).length > 0 || (p.adicionales || []).length > 0;
+                  const conOpciones = (p.opciones || []).length > 0 || (p.adicionales || []).length > 0 || esCombo(p);
                   return (
                     <button
                       key={p.id}
@@ -3044,6 +3120,36 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                                     <p className="text-xs text-slate-400">No hay lotes registrados para este producto.</p>
                                   )}
                                 </div>
+                                {saboresDe(p).length > 0 && (
+                                  <>
+                                    <p className="text-xs font-bold text-slate-700 mt-4 mb-2 uppercase tracking-wide">Códigos por sabor:</p>
+                                    <div className="space-y-2">
+                                      {saboresDe(p).map(sabor => {
+                                        const codigoSabor = codigoDeSabor(p, sabor);
+                                        return (
+                                          <div key={sabor} className="flex flex-wrap justify-between items-center gap-2 text-xs bg-slate-50 p-2 rounded border border-slate-100">
+                                            <span>
+                                              <span className="font-semibold text-slate-800">{sabor}</span>
+                                              <span className={`ml-2 font-mono ${codigoSabor ? 'text-slate-600' : 'text-slate-400'}`}>{codigoSabor || 'sin código'}</span>
+                                            </span>
+                                            <div className="flex gap-2 no-print">
+                                              <button
+                                                onClick={() => { setSaborPorEscanear({ productoId: p.id, sabor }); setEscaner('sabor'); }}
+                                                disabled={!puede('inventario')}
+                                                className="enlace inline-flex items-center gap-1"
+                                              >
+                                                <ScanBarcode size={12} /> {codigoSabor ? 'Cambiar' : 'Escanear código'}
+                                              </button>
+                                              {codigoSabor && (
+                                                <button onClick={() => asignarCodigoSabor(p.id, sabor, '')} disabled={!puede('inventario')} className="enlace enlace-peligro">Quitar</button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -3143,8 +3249,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       <EscanerCamara
         abierto={!!escaner}
         continuo={escaner === 'venta'}
-        titulo={escaner === 'venta' ? 'Escanear productos para vender' : 'Escanear código del producto'}
-        onCerrar={() => setEscaner(null)}
+        titulo={escaner === 'venta' ? 'Escanear productos para vender'
+          : escaner === 'sabor' && saborPorEscanear ? `Código del sabor ${saborPorEscanear.sabor}`
+          : 'Escanear código del producto'}
+        onCerrar={() => { setEscaner(null); setSaborPorEscanear(null); }}
         onCodigo={alLeerCodigo}
       />
         </Suspense>
@@ -3153,6 +3261,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
         <VincularCodigo
           codigo={codigoPorVincular.codigo}
           productos={productos}
+          saboresDe={saboresDe}
           onVincular={vincularCodigo}
           onNuevo={registrarCodigoComoNuevo}
           onCerrar={() => setCodigoPorVincular(null)}
