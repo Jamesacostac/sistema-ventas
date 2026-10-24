@@ -42,8 +42,8 @@ export const codigosSaborDe = (producto) =>
 export const saborDeCodigo = (producto, codigo) => codigosSaborDe(producto)[limpiarCodigo(codigo)] || null;
 
 export const codigoDeSabor = (producto, sabor) => {
-  const buscado = String(sabor || '').toLowerCase();
-  return Object.entries(codigosSaborDe(producto)).find(([, s]) => String(s).toLowerCase() === buscado)?.[0] || null;
+  const buscado = String(sabor || '').trim().toLowerCase();
+  return Object.entries(codigosSaborDe(producto)).find(([, s]) => String(s).trim().toLowerCase() === buscado)?.[0] || null;
 };
 
 // Cambios para asignar (o quitar, con codigo vacío) el código de un sabor

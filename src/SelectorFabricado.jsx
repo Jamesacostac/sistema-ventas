@@ -4,11 +4,17 @@ import { eleccionDe, adicionalesDe, precioUnitario, precioPorCantidad, claveVari
 
 const dinero = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO');
 
-// Unidades por sabor de un producto del inventario: [{ variante, cantidad }]
+// Unidades por sabor de un producto del inventario: [{ variante, cantidad }].
+// "Mora", "mora" y "mora " son el mismo sabor (así se escribieron en distintos lotes).
 const saboresConStock = (prod) => {
   const porSabor = {};
-  (prod?.lotes || []).forEach(l => { porSabor[l.variante || 'General'] = (porSabor[l.variante || 'General'] || 0) + (Number(l.cantidad) || 0); });
-  return Object.entries(porSabor).map(([variante, cantidad]) => ({ variante, cantidad })).filter(s => s.cantidad > 0);
+  (prod?.lotes || []).forEach(l => {
+    const nombre = String(l.variante || 'General').trim();
+    const clave = nombre.toLowerCase();
+    porSabor[clave] ??= { variante: nombre, cantidad: 0 };
+    porSabor[clave].cantidad += Number(l.cantidad) || 0;
+  });
+  return Object.values(porSabor).filter(s => s.cantidad > 0);
 };
 const stockDe = (prod) => saboresConStock(prod).reduce((s, x) => s + x.cantidad, 0);
 

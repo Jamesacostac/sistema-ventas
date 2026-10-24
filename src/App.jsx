@@ -43,6 +43,16 @@ const ZONA_HORARIA = 'America/Bogota';
 const fechaLocal = (momento = new Date()) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: ZONA_HORARIA, year: 'numeric', month: '2-digit', day: '2-digit' }).format(momento);
 
+// Sabores sin repetir: "Mora", "mora" y "mora " son el mismo (se escribieron distinto en cada lote)
+const saboresUnicos = (lista) => {
+  const vistos = new Map();
+  lista.forEach(s => {
+    const nombre = String(s || '').trim();
+    if (nombre && !vistos.has(nombre.toLowerCase())) vistos.set(nombre.toLowerCase(), nombre);
+  });
+  return [...vistos.values()];
+};
+
 // Formulario de producto vacío
 const FORM_PRODUCTO_VACIO = { productoId: '', nombre: '', costo: '', precio: '', variante: 'General', cantidad: '', vencimiento: '', categoria: '', descripcion: '', codigo: '' };
 
@@ -662,7 +672,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
 
     for (const lote of copia) {
       if (restante <= 0) break;
-      if (variante !== 'TODAS' && lote.variante.toLowerCase() !== variante.toLowerCase()) continue;
+      if (variante !== 'TODAS' && lote.variante.trim().toLowerCase() !== variante.trim().toLowerCase()) continue;
       const usar = Math.min(lote.cantidad, restante);
       lote.cantidad -= usar;
       restante -= usar;
@@ -1347,10 +1357,10 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
   };
 
   // Sabores de un producto: las variantes de sus lotes y los que ya tienen código
-  const saboresDe = (prod) => [...new Set([
+  const saboresDe = (prod) => saboresUnicos([
     ...obtenerLotesNorm(prod).map(l => l.variante),
     ...Object.values(codigosSaborDe(prod))
-  ].filter(s => s && s !== 'General' && s !== prod.nombre))];
+  ]).filter(s => s !== 'General' && s !== prod.nombre);
 
   // Guarda el código leído en un producto que ya estaba en el inventario (y en su sabor, si se eligió)
   const vincularCodigo = async (prod, sabor = null) => {
@@ -1367,7 +1377,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       const nombre = `${prod.nombre}${sabor ? ` (${sabor})` : ''}`;
       if (origen === 'venta') {
         if (agregarProducto(prod, sabor || 'TODAS')) mostrarToast(`Código vinculado · +1 ${nombre}`);
-      } else if (sabor && !obtenerLotesNorm(prod).some(l => l.variante.toLowerCase() === sabor.toLowerCase())) {
+      } else if (sabor && !obtenerLotesNorm(prod).some(l => l.variante.trim().toLowerCase() === sabor.trim().toLowerCase())) {
         // Sabor nuevo sin unidades: se abre el formulario para registrar su primer lote
         abrirFormularioLote(prod, sabor, codigo);
         mostrarToast(`Código vinculado a ${nombre}: escribe la cantidad y el vencimiento`, 'info');
@@ -1934,7 +1944,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                 <ul className="divide-y divide-linea-suave -mx-1">
                   {carrito.map(item => {
                     const prod = productos.find(p => p.id === item.productoId);
-                    const variantes = prod ? [...new Set(obtenerLotesNorm(prod).map(l => l.variante))] : [];
+                    const variantes = prod ? saboresUnicos(obtenerLotesNorm(prod).map(l => l.variante)) : [];
                     return (
                       <li key={item.key} className="flex items-start gap-3 px-1 py-2.5">
                         <div className="flex-1 min-w-0">

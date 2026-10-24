@@ -6,7 +6,7 @@ import {
 import {
   costoReceta, faltantesReceta, variantesDe, nombreVariante, recetaDe, precioUnitario, precioPorCantidad,
   precioSugerido, gananciaDe, leerCantidad, mostrarCantidad, nuevoId, compararNombres, GANANCIA_POR_DEFECTO,
-  planificarVenta, alcanzaPara, claveVariante, combinacionesIncluye, esCombo
+  planificarVenta, alcanzaPara, claveVariante, combinacionesIncluye, esCombo, incluyeDe
 } from './fabricacion';
 import { CATALOGO_NOGURI } from './catalogoNoguri';
 import { CATALOGO_TAZON } from './catalogoTazon';
@@ -668,7 +668,10 @@ export default function ProductosFabricados({ productos, materiales, categorias,
                     <span>
                       <span className="font-bold text-tinta">{p.nombre}</span>
                       <span className="block text-xs text-gris-calido">
-                        {p.categoria} · {(p.opciones || []).map(o => `${o.nombre}: ${o.valores.length}`).join(' · ') || 'sin opciones'}
+                        {p.categoria} · {[
+                          ...(p.opciones || []).map(o => `${o.nombre}: ${o.valores.length}`),
+                          ...incluyeDe(p).filter(e => e.opciones.length > 1).map(e => `${e.nombre}: ${e.opciones.length} a elegir`)
+                        ].join(' · ') || 'sin opciones'}
                         {(p.preciosCantidad || []).length > 0 && ` · ${p.preciosCantidad.map(x => `${x.cantidad} por ${dinero(x.precio)}`).join(', ')}`}
                       </span>
                     </span>
