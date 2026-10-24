@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { 
-  collection, onSnapshot, doc
+import {
+  collection, onSnapshot, doc, getDoc, setDoc, query, where
 } from 'firebase/firestore';
+import { cartaPublica, fechaHora, aMilis } from './pedidosEnLinea';
 import { db } from './firebase';
 import { enviarMensajeTelegram, obtenerUltimosMensajesTelegram } from './telegram';
 import { cerrarSesion } from './servidor';
@@ -21,7 +22,7 @@ import Recorrido from './Recorrido';
 import CajaBase from './CajaBase';
 import BajasLotes from './BajasLotes';
 import VincularCodigo from './VincularCodigo';
-import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario, esCombo, claveElegidos, descripcionElegidos, costoElegidos } from './fabricacion';
+import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario, esCombo, claveElegidos, descripcionElegidos, costoElegidos, eleccionDe, adicionalesDe, precioExtraElegidos } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
 import { MenuDesplegable, MenuItem, MenuSeparador, MenuTitulo, Plegable, usePantalla } from './ui';
@@ -287,6 +288,49 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       unsubCaja();
     };
   }, []);
+
+  // ---- Pedidos en línea de los clientes ----
+  // Tiene su propio manejo de errores: si falla no debe sacar al usuario a la verificación.
+  const [pedidosEnLinea, setPedidosEnLinea] = useState([]);
+  const pedidosVistos = useRef(null);
+  useEffect(() => onSnapshot(
+    query(col('pedidos'), where('estado', '==', 'pendiente')),
+    (snap) => {
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => aMilis(a.creadoEn) - aMilis(b.creadoEn));
+      if (pedidosVistos.current) {
+        const nuevo = lista.find(p => !pedidosVistos.current.has(p.id));
+        if (nuevo) mostrarToast(`🛎️ Nuevo pedido en línea: ${nuevo.codigo} · ${nuevo.clienteNombre}`, 'info');
+      }
+      pedidosVistos.current = new Set(lista.map(p => p.id));
+      setPedidosEnLinea(lista);
+    },
+    (error) => console.error('Pedidos en línea:', error)
+  ), []);
+
+  // Carta pública para los clientes: se vuelve a publicar cuando cambian precios o disponibilidad
+  const cartaPublicada = useRef(null);
+  const puedePublicarCarta = puede('inventario') || puede('ventas');
+  useEffect(() => {
+    if (cargando || !puedePublicarCarta) return;
+    const temporizador = setTimeout(async () => {
+      const items = cartaPublica(productos, fabricados, materialesPorId, obtenerLotesNorm);
+      const ordenado = (valor) => JSON.stringify(valor, (_k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v));
+      try {
+        const ref = doc(db, 'negocios', negocioId, 'publico', 'carta');
+        if (cartaPublicada.current === null) {
+          const actual = await getDoc(ref);
+          cartaPublicada.current = actual.exists() ? ordenado(actual.data().items || []) : '';
+        }
+        const nueva = ordenado(items);
+        if (nueva === cartaPublicada.current) return;
+        await setDoc(ref, { items, actualizadoEn: Date.now() });
+        cartaPublicada.current = nueva;
+      } catch (error) {
+        console.error('Carta pública:', error);
+      }
+    }, 2000);
+    return () => clearTimeout(temporizador);
+  }, [productos, fabricados, materiales, cargando, puedePublicarCarta]);
 
   // Listener Telegram
   useEffect(() => {
@@ -805,6 +849,61 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     if (carrito.length > 0 && confirm("¿Vaciar el carrito?")) setCarrito([]);
   };
 
+  // ---- Cobrar un pedido en línea: se carga en el pedido de caja con los precios reales ----
+  const [pedidoEnLineaId, setPedidoEnLineaId] = useState(null);
+  useEffect(() => { if (carrito.length === 0) setPedidoEnLineaId(null); }, [carrito.length]);
+  const pedidoEnLinea = pedidosEnLinea.find(p => p.id === pedidoEnLineaId) || null;
+
+  const cargarPedidoEnLinea = (pedido) => {
+    if (!exigir('ventas', 'cobrar pedidos')) return;
+    if (carrito.length > 0 && !confirm('Hay productos en el pedido de caja. ¿Reemplazarlos por el pedido en línea?')) return;
+    const faltan = [];
+    const ahora = Date.now();
+    const items = pedido.items.flatMap((it, n) => {
+      const key = `${it.productoId}_${ahora}_${n}`;
+      if (it.tipo === 'fabricado') {
+        const prod = fabricadosPorId[it.productoId];
+        if (!prod) { faltan.push(it.nombre); return []; }
+        const valores = it.valores || [];
+        const extras = [...(it.adicionales || [])].sort();
+        const elegidos = (it.elegidos || []).map(e => {
+          const inv = productos.find(p => p.id === e.productoId);
+          return { ...e, nombre: inv?.nombre || e.nombre, costo: Number(inv?.costo) || 0 };
+        });
+        const precio = precioUnitario(prod, eleccionDe(prod, valores), adicionalesDe(prod, extras)) + precioExtraElegidos(prod, elegidos);
+        return [{
+          key, productoId: prod.id, nombre: prod.nombre, fabricado: true, valores, adicionales: extras, elegidos,
+          variante: [descripcionLinea(prod, valores, extras), descripcionElegidos(elegidos)].filter(Boolean).join(' · '),
+          cantidad: it.cantidad, precio
+        }];
+      }
+      const prod = productos.find(p => p.id === it.productoId);
+      if (!prod) { faltan.push(it.nombre); return []; }
+      return [{ key, productoId: prod.id, nombre: prod.nombre, variante: it.variante || 'TODAS', cantidad: it.cantidad, precio: Number(prod.precio) || 0, costo: Number(prod.costo) || 0 }];
+    });
+    if (faltan.length) alert(`Ya no están en el inventario: ${faltan.join(', ')}. Se cargó el resto del pedido.`);
+    const { error } = simularCarrito(items);
+    if (error) alert(`⚠️ ${error}\n\nAjusta el pedido antes de cobrar.`);
+    setCarrito(items);
+    setPedidoEnLineaId(pedido.id);
+    setFormVenta(f => ({ ...f, cliente: pedido.clienteNombre, pagado: true, staff: false, medioPago: pedido.medioPago || 'Efectivo', otroMedioPago: '' }));
+    setPestana('ventas');
+    setPedidoAbierto(true);
+  };
+
+  const cancelarPedidoEnLinea = async (pedido) => {
+    if (!exigir('ventas', 'cancelar pedidos')) return;
+    if (!confirm(`¿Cancelar el pedido ${pedido.codigo} de ${pedido.clienteNombre}? El cliente lo verá cancelado.`)) return;
+    try {
+      const op = operacion('Pedido en línea cancelado', `${pedido.codigo} — ${pedido.clienteNombre}`);
+      op.actualizar(docN('pedidos', pedido.id), { estado: 'cancelado', canceladoEn: Date.now() }, pedido);
+      await op.guardar();
+      if (pedidoEnLineaId === pedido.id) setPedidoEnLineaId(null);
+    } catch (error) {
+      alert('No se pudo cancelar el pedido: ' + error.message);
+    }
+  };
+
   // Los fabricados pueden tener precio por cantidad (2 botones por $3.500)
   const totalItem = (i) => (i.fabricado ? precioPorCantidad(fabricadosPorId[i.productoId] || {}, i.cantidad, i.precio) : i.precio * i.cantidad);
   const totalCarrito = carrito.reduce((acc, i) => acc + totalItem(i), 0);
@@ -920,6 +1019,28 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
             descuentos: cobroTarjeta.total
           }
         });
+      }
+
+      // Pedido en línea cobrado: el cliente lo ve pagado en su celular, con la factura
+      const pedidoCobrado = pedidosEnLinea.find(p => p.id === pedidoEnLineaId);
+      if (pedidoCobrado) {
+        op.actualizar(docN('pedidos', pedidoCobrado.id), {
+          estado: 'pagado',
+          pagadoEn: creadoEn,
+          factura: {
+            lineas: carrito.map(i => ({
+              nombre: i.nombre,
+              detalle: i.fabricado ? i.variante : i.variante === 'TODAS' ? '' : i.variante,
+              cantidad: i.cantidad,
+              total: formVenta.staff ? 0 : totalItem(i)
+            })),
+            total: totalACobrar,
+            recargo: aplicaRecargo ? cobroTarjeta.recargo : 0,
+            medioPago: medioPagoFinal,
+            ventaId: pedidoId,
+            atendio: perfil?.nombre || ''
+          }
+        }, pedidoCobrado);
       }
 
       const stockFinal = {};
@@ -1934,6 +2055,12 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                 </h2>
                 {carrito.length > 0 && <button onClick={handleVaciarCarrito} className="enlace enlace-peligro text-xs">Vaciar</button>}
               </div>
+              {pedidoEnLinea && (
+                <div className="aviso aviso-info mb-3 !text-xs flex-wrap items-center justify-between">
+                  <span>Cobrando el pedido en línea <b className="font-mono">{pedidoEnLinea.codigo}</b> de <b>{pedidoEnLinea.clienteNombre}</b>. Al registrar, le aparece pagado en su celular.</span>
+                  <button onClick={() => setPedidoEnLineaId(null)} className="enlace text-xs">Soltar</button>
+                </div>
+              )}
 
               {carrito.length === 0 ? (
                 <div className="text-center py-8 px-4 rounded-xl bg-crema/60 border-[1.5px] border-dashed border-linea">
@@ -2120,6 +2247,40 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                 {corrigiendoFechas ? 'Corrigiendo...' : 'Corregir fechas'}
               </button>
             </div>
+          )}
+
+          {pedidosEnLinea.length > 0 && (
+            <section className="panel p-4 md:p-5 mb-6 no-print">
+              <h2 className="text-base font-bold text-tinta flex items-center gap-2.5 mb-1">
+                <BellRing size={18} /> Pedidos en línea
+                <span className="pastilla pastilla-pendiente">{pedidosEnLinea.length} por cobrar</span>
+              </h2>
+              <p className="text-xs text-gris-calido mb-3">El cliente te dice su código o su nombre. Toca Cobrar: se carga en el pedido de caja con los precios de hoy.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {pedidosEnLinea.map(p => (
+                  <div key={p.id} className={`rounded-xl border-[1.5px] p-3 space-y-2 ${pedidoEnLineaId === p.id ? 'border-tinta bg-sol/20' : 'border-linea'}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-mono text-xl font-bold tracking-widest leading-none">{p.codigo}</p>
+                        <p className="text-sm font-semibold truncate">{p.clienteNombre}</p>
+                        <p className="text-[11px] text-gris-calido">{fechaHora(p.creadoEn)} · paga con {p.medioPago}</p>
+                      </div>
+                      <span className="kpi-valor text-lg shrink-0">{dinero(p.total)}</span>
+                    </div>
+                    <ul className="text-xs text-gris-calido space-y-0.5">
+                      {p.items.map((it, i) => (
+                        <li key={i}><b className="text-tinta">{it.cantidad} × {it.nombre}</b>{it.descripcion ? ` · ${it.descripcion}` : ''}</li>
+                      ))}
+                    </ul>
+                    {p.nota && <p className="text-xs">📝 {p.nota}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={() => cargarPedidoEnLinea(p)} disabled={!puedeVender} className="btn btn-primario btn-sm flex-1"><Banknote size={14} /> Cobrar</button>
+                      <button onClick={() => cancelarPedidoEnLinea(p)} disabled={!puedeVender} className="btn btn-claro btn-sm">Cancelar</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
 
           <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_400px] gap-6 mb-6 items-start no-print">

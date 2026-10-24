@@ -112,6 +112,25 @@ service cloud.firestore {
       return miembroVerificado(nid) && puedeEn(nid, permiso) && eliminacionAuditadaEn(nid, coleccion, id);
     }
 
+    // ---------------- Pedidos en línea de clientes ----------------
+    // Cualquier persona con sesión (cuenta de cliente o invitado anónimo) puede crear un pedido
+    // a su nombre. No ve costos ni datos del negocio: solo la carta pública y sus propios pedidos.
+
+    function pedidoValido(nid) {
+      let d = request.resource.data;
+      return exists(/databases/$(database)/documents/negocios/$(nid))
+        && d.keys().hasOnly(['clienteUid', 'clienteNombre', 'codigo', 'items', 'total', 'medioPago', 'nota', 'estado', 'creadoEn'])
+        && d.clienteUid == request.auth.uid
+        && d.estado == 'pendiente'
+        && d.creadoEn == request.time
+        && d.clienteNombre is string && d.clienteNombre.size() > 0 && d.clienteNombre.size() <= 60
+        && d.codigo is string && d.codigo.size() == 5
+        && d.items is list && d.items.size() > 0 && d.items.size() <= 40
+        && d.total is number && d.total >= 0
+        && d.medioPago in ['Efectivo', 'Transferencia', 'Tarjeta']
+        && (!('nota' in d) || (d.nota is string && d.nota.size() <= 200));
+    }
+
     // ---------------- Colecciones de seguridad (las maneja el servidor) ----------------
 
     // Cuenta habilitada en la app: cada uno ve la suya
@@ -223,6 +242,27 @@ service cloud.firestore {
         allow read: if miembroVerificado(nid);
         allow create, update: if escribirEn(nid, 'finanzas');
         allow delete: if eliminarEn(nid, 'finanzas', 'caja_base', id);
+      }
+
+      // Carta pública (nombre, precio, disponibilidad; sin costos). La genera la app del negocio.
+      match /publico/{id} {
+        allow read: if request.auth != null;
+        allow write: if miembroVerificado(nid) && (puedeEn(nid, 'inventario') || puedeEn(nid, 'ventas'));
+      }
+
+      // Pedidos en línea: el cliente crea los suyos y solo los ve él; caja los cobra (auditado).
+      // El cliente puede cancelar el suyo mientras está pendiente.
+      match /pedidos/{id} {
+        allow read: if miembroVerificado(nid)
+          || (request.auth != null && resource.data.clienteUid == request.auth.uid);
+        allow create: if request.auth != null && pedidoValido(nid);
+        allow update: if escribirEn(nid, 'ventas')
+          || (request.auth != null
+            && resource.data.clienteUid == request.auth.uid
+            && resource.data.estado == 'pendiente'
+            && request.resource.data.estado == 'cancelado'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'canceladoEn']));
+        allow delete: if false;
       }
     }
 

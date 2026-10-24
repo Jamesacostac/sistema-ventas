@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from './firebase';
-import { LogIn } from 'lucide-react';
+import { LogIn, ShoppingBag } from 'lucide-react';
 
 const mensajesError = {
   'auth/invalid-credential': 'Correo o contraseña incorrectos.',
@@ -11,7 +11,7 @@ const mensajesError = {
   'auth/network-request-failed': 'Sin conexión a internet.'
 };
 
-export default function Login() {
+export default function Login({ onCliente }) {
   const [correo, setCorreo] = useState('');
   const [clave, setClave] = useState('');
   const [error, setError] = useState('');
@@ -96,6 +96,12 @@ export default function Login() {
         >
           ¿Olvidaste tu contraseña?
         </button>
+
+        <div className="border-t-[1.5px] border-dashed border-linea mt-5 pt-5">
+          <button type="button" onClick={onCliente} className="btn btn-oscuro w-full">
+            <ShoppingBag size={16} /> Soy cliente: hacer un pedido
+          </button>
+        </div>
       </div>
       <p className="marca-eyebrow text-tinta/80 mt-6 text-center">Jugar también es escuchar · Engativá, Bogotá</p>
     </div>
