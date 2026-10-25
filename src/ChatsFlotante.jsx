@@ -6,12 +6,18 @@ import { achicarFoto, enlaceWhatsApp } from './fotos';
 import { fechaHora, URL_API_NOGURI } from './pedidosEnLinea';
 
 const CADA_SYNC = 15000;
+// Igual que en la API de la página (Apps Script). Tras «/finalizar», al recargar, el cliente ve el chat desde cero.
+const DESPEDIDA_CHAT = '✅ Finalizamos esta conversación. ¡Gracias por escribirnos! Si necesitas algo más, escríbenos de nuevo por aquí.';
+const finalizada = (c) => {
+  const ultimo = (c.mensajes || [])[c.mensajes?.length - 1];
+  return !!c.cerradoEn && (!ultimo || String(ultimo.en) <= c.cerradoEn);
+};
 
 /**
  * Bandeja flotante con las conversaciones del chat de la página (negocios/{id}/chats).
  * Se responde una por una; el cliente lo ve en el chat de la página. Las respuestas dadas en Telegram
  * también llegan aquí (mientras está abierta se le pide a la API que las traiga).
- * Tocar el nombre del cliente abre el seguimiento de su pedido.
+ * Tocar el nombre del cliente abre el seguimiento de su pedido. Escribir «/finalizar» cierra la conversación.
  */
 export default function ChatsFlotante({ negocioId, usuario, nombreUsuario, onAbrirPedido, mostrarToast }) {
   const [chats, setChats] = useState([]);
@@ -80,7 +86,7 @@ export default function ChatsFlotante({ negocioId, usuario, nombreUsuario, onAbr
   }, [abierta, ampliada]);
 
   const porResponder = chats.filter(c => c.pendiente).length;
-  const ordenados = useMemo(() => [...chats].sort((a, b) => (b.pendiente === true) - (a.pendiente === true)), [chats]);
+  const ordenados = useMemo(() => [...chats].sort((a, b) => (b.pendiente === true) - (a.pendiente === true) || finalizada(a) - finalizada(b)), [chats]);
 
   if (!chats.length) return null;
 
@@ -94,10 +100,30 @@ export default function ChatsFlotante({ negocioId, usuario, nombreUsuario, onAbr
     }
   };
 
+  const finalizar = async () => {
+    setEnviando(true);
+    try {
+      const ahora = new Date().toISOString();
+      await updateDoc(doc(colChats, chat.id), {
+        mensajes: arrayUnion({ id: Math.random().toString(36).slice(2, 10), de: 'noguri', texto: DESPEDIDA_CHAT, en: ahora, fin: true, autor: nombreUsuario || '' }),
+        actualizadoEn: ahora,
+        cerradoEn: ahora,
+        pendiente: false,
+      });
+      setTexto('');
+      mostrarToast(`✅ Conversación con ${chat.nombre || 'el cliente'} finalizada. Al recargar, su chat empieza desde cero.`);
+    } catch (err) {
+      alert('No se pudo finalizar: ' + err.message);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
   const responder = async (e) => {
     e?.preventDefault();
     const t = texto.trim();
     if (!chat || enviando || (!t && !adjuntos.length)) return;
+    if (/^\/finalizar/i.test(t) && !adjuntos.length) return finalizar();
     setEnviando(true);
     try {
       const refChat = doc(colChats, chat.id);
@@ -154,6 +180,7 @@ export default function ChatsFlotante({ negocioId, usuario, nombreUsuario, onAbr
                       <span className="flex items-center justify-between gap-2">
                         <b className="text-sm truncate">{c.nombre || 'Cliente sin nombre'}</b>
                         {c.pendiente && <span className="w-2.5 h-2.5 rounded-full bg-coral shrink-0" title="Por responder" />}
+                        {!c.pendiente && finalizada(c) && <span className="pastilla pastilla-neutra !text-[10px] !py-0 shrink-0">Finalizada</span>}
                       </span>
                       {c.pedidoCodigo && <span className="block text-[11px] font-mono text-gris-calido">📦 {c.pedidoCodigo}</span>}
                       <span className="block text-xs text-gris-calido truncate">{m ? `${m.de === 'cliente' ? '' : 'Tú: '}${m.texto || '📷 foto'}` : 'Sin mensajes'}</span>
@@ -182,7 +209,8 @@ export default function ChatsFlotante({ negocioId, usuario, nombreUsuario, onAbr
                 </div>
                 <div ref={lista} className="flex-1 overflow-y-auto p-3 space-y-2 bg-crema/60">
                   {(chat.mensajes || []).map(m => (
-                    <div key={m.id} className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${m.de === 'cliente' ? 'bg-white border border-linea' : 'ml-auto bg-tinta text-white'}`}>
+                    <React.Fragment key={m.id}>
+                    <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${m.de === 'cliente' ? 'bg-white border border-linea' : 'ml-auto bg-tinta text-white'}`}>
                       {m.texto}
                       {m.fotos?.length > 0 && (
                         <div className="grid grid-cols-2 gap-1.5 mt-2">
@@ -195,6 +223,8 @@ export default function ChatsFlotante({ negocioId, usuario, nombreUsuario, onAbr
                       )}
                       <span className="block text-[10px] opacity-60 mt-1">{m.de === 'cliente' ? 'Cliente' : (m.autor || 'Noguri')} · {fechaHora(Date.parse(m.en))}</span>
                     </div>
+                    {m.fin && <p className="separador text-[11px] text-gris-calido text-center py-1">— Conversación finalizada · al recargar, el cliente empieza un chat nuevo —</p>}
+                    </React.Fragment>
                   ))}
                 </div>
                 <form onSubmit={responder} className="border-t-[1.5px] border-linea p-2 space-y-2">
@@ -217,7 +247,7 @@ export default function ChatsFlotante({ negocioId, usuario, nombreUsuario, onAbr
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); responder(); } }}
                       rows={1}
                       maxLength={2000}
-                      placeholder={`Responder a ${String(chat.nombre || 'el cliente').split(' ')[0]}…`}
+                      placeholder={`Responder a ${String(chat.nombre || 'el cliente').split(' ')[0]}… (/finalizar para cerrar)`}
                       className="campo resize-none"
                       aria-label="Respuesta"
                     />

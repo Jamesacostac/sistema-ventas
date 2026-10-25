@@ -285,7 +285,7 @@ service cloud.firestore {
       match /chats/{chatId} {
         allow read: if miembroVerificado(nid) && puedeEn(nid, 'ventas');
         allow update: if miembroVerificado(nid) && puedeEn(nid, 'ventas')
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mensajes', 'actualizadoEn', 'pendiente']);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mensajes', 'actualizadoEn', 'pendiente', 'cerradoEn']);
         allow create, delete: if false;
 
         // Fotos del chat: las del cliente llegan por la página (Apps Script); caja adjunta las suyas al responder
