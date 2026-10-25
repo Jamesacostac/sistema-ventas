@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import {
-  collection, onSnapshot, doc, getDoc, setDoc, query, where
+  collection, onSnapshot, doc, getDoc, setDoc, query, where, getDocs, limit
 } from 'firebase/firestore';
 import { cartaPublica, fechaHora, aMilis, productoNoguri } from './pedidosEnLinea';
 import { db } from './firebase';
@@ -22,6 +22,7 @@ import Recorrido from './Recorrido';
 import CajaBase from './CajaBase';
 import BajasLotes from './BajasLotes';
 import VincularCodigo from './VincularCodigo';
+import SeguimientoPedido from './SeguimientoPedido';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario, esCombo, claveElegidos, descripcionElegidos, costoElegidos, eleccionDe, adicionalesDe, precioExtraElegidos } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -35,7 +36,7 @@ import {
   CheckCircle, Trash2, Package, Send, BookOpen, AlertTriangle, Tag, Edit2,
   ChevronDown, ChevronUp, Save, Wallet, TrendingDown, RefreshCw, LogOut, ShoppingCart, Users,
   HandCoins, UserPlus, Phone, Merge, UserCircle, History, BellRing, Boxes, UtensilsCrossed,
-  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X, Settings, PlusCircle, Layers, Hammer, Compass
+  Handshake, Banknote, PiggyBank, ClipboardList, Receipt, PackagePlus, Store, Search, Plus, Minus, Ellipsis, Gift, PackageX, Archive, ScanBarcode, Barcode, Tags, Sparkles, X, Settings, PlusCircle, Layers, Hammer, Compass, Camera
 } from 'lucide-react';
 
 // Fecha AAAA-MM-DD con la hora de Colombia. Antes se usaba la hora UTC y lo que se
@@ -306,6 +307,35 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
     },
     (error) => console.error('Pedidos en línea:', error)
   ), []);
+
+  // Pedidos con un reporte del cliente sin revisar (pueden estar ya pagados)
+  const [pedidosConReporte, setPedidosConReporte] = useState([]);
+  useEffect(() => onSnapshot(
+    query(col('pedidos'), where('reporteNuevo', '==', true)),
+    (snap) => setPedidosConReporte(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    (error) => console.error('Reportes de pedidos:', error)
+  ), []);
+
+  // Seguimiento de un pedido (fotos del taller, listo, reportes): se abre desde la lista o buscando el código
+  const [pedidoSeguimiento, setPedidoSeguimiento] = useState(null);
+  const [codigoBuscado, setCodigoBuscado] = useState('');
+  const buscarPedido = async (e) => {
+    e.preventDefault();
+    const texto = codigoBuscado.trim();
+    if (!texto) return;
+    try {
+      // Código de seguimiento de la página (id del pedido) o código corto de 5 letras
+      const porId = /^\d{8}_\d{6}_/.test(texto) ? await getDoc(docN('pedidos', texto.toLowerCase().replace(/\s+/g, ''))) : null;
+      if (porId?.exists()) { setPedidoSeguimiento({ id: porId.id, ...porId.data() }); setCodigoBuscado(''); return; }
+      const snap = await getDocs(query(col('pedidos'), where('codigo', '==', texto.toUpperCase()), limit(5)));
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => aMilis(b.creadoEn) - aMilis(a.creadoEn));
+      if (!lista.length) return alert(`No hay ningún pedido con el código ${texto}.`);
+      setPedidoSeguimiento(lista[0]);
+      setCodigoBuscado('');
+    } catch (error) {
+      alert('No se pudo buscar el pedido: ' + error.message);
+    }
+  };
 
   // Carta pública para los clientes: se vuelve a publicar cuando cambian precios o disponibilidad
   const cartaPublicada = useRef(null);
@@ -2264,13 +2294,33 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
             </div>
           )}
 
-          {pedidosEnLinea.length > 0 && (
+          {(pedidosEnLinea.length > 0 || pedidosConReporte.length > 0 || puedeVender) && (
             <section className="panel p-4 md:p-5 mb-6 no-print">
-              <h2 className="text-base font-bold text-tinta flex items-center gap-2.5 mb-1">
-                <BellRing size={18} /> Pedidos en línea
-                <span className="pastilla pastilla-pendiente">{pedidosEnLinea.length} por cobrar</span>
-              </h2>
-              <p className="text-xs text-gris-calido mb-3">El cliente te dice su código o su nombre. Toca Cobrar: se carga en el pedido de caja con los precios de hoy.</p>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+                <h2 className="text-base font-bold text-tinta flex items-center gap-2.5">
+                  <BellRing size={18} /> Pedidos en línea
+                  {pedidosEnLinea.length > 0 && <span className="pastilla pastilla-pendiente">{pedidosEnLinea.length} por cobrar</span>}
+                </h2>
+                <form onSubmit={buscarPedido} className="relative w-full sm:w-72">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gris-calido" />
+                  <input type="search" value={codigoBuscado} onChange={(e) => setCodigoBuscado(e.target.value)} placeholder="Buscar pedido por código" className="campo pl-9" aria-label="Buscar pedido por código" />
+                </form>
+              </div>
+              {pedidosConReporte.length > 0 && (
+                <div className="aviso aviso-error my-3 flex-col items-stretch gap-2">
+                  <b className="flex items-center gap-2"><AlertTriangle size={16} /> {pedidosConReporte.length === 1 ? 'Un cliente reportó algo de su pedido' : `${pedidosConReporte.length} clientes reportaron algo de su pedido`}</b>
+                  <div className="flex flex-wrap gap-2">
+                    {pedidosConReporte.map(p => (
+                      <button key={p.id} onClick={() => setPedidoSeguimiento(p)} className="btn btn-oscuro btn-sm">
+                        {p.codigo} · {p.clienteNombre}{p.reportes?.length ? ` · ${p.reportes[p.reportes.length - 1].tipo === 'corregir' ? 'corregir' : 'problema'}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pedidosEnLinea.length === 0
+                ? <p className="text-xs text-gris-calido">No hay pedidos por cobrar. Busca un pedido por su código para ver sus fotos, avisar que está listo o revisar lo que reportó el cliente.</p>
+                : <p className="text-xs text-gris-calido mb-3">El cliente te dice su código o su nombre. Toca Cobrar: se carga en el pedido de caja con los precios de hoy.</p>}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {pedidosEnLinea.map(p => (
                   <div key={p.id} className={`rounded-xl border-[1.5px] p-3 space-y-2 ${pedidoEnLineaId === p.id ? 'border-tinta bg-sol/20' : 'border-linea'}`}>
@@ -2298,8 +2348,17 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
                       <p className="text-xs">🛠️ {[p.servicios.quitar_fondo && 'Quitar fondo', p.servicios.mejorar_resolucion && 'Mejorar resolución'].filter(Boolean).join(' · ')}</p>
                     )}
                     {p.carpetaUrl && <a href={p.carpetaUrl} target="_blank" rel="noreferrer" className="enlace text-xs inline-block">Ver los dibujos en Drive</a>}
+                    {(p.listo || p.fotosTaller?.length > 0 || p.reporteNuevo || p.valoracion) && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {p.listo && <span className="pastilla pastilla-ok">Listo</span>}
+                        {p.fotosTaller?.length > 0 && <span className="pastilla pastilla-neutra">📷 {p.fotosTaller.length}</span>}
+                        {p.valoracion?.tipo === 'bien' && <span className="pastilla pastilla-ok">👍 Le gustó</span>}
+                        {p.reporteNuevo && <span className="pastilla pastilla-peligro">Reporte nuevo</span>}
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <button onClick={() => cargarPedidoEnLinea(p)} disabled={!puedeVender} className="btn btn-primario btn-sm flex-1"><Banknote size={14} /> Cobrar</button>
+                      <button onClick={() => setPedidoSeguimiento(p)} className="btn btn-claro btn-sm" title="Fotos del taller, avisar que está listo y reportes del cliente"><Camera size={14} /> Seguimiento</button>
                       <button onClick={() => cancelarPedidoEnLinea(p)} disabled={!puedeVender} className="btn btn-claro btn-sm">Cancelar</button>
                     </div>
                   </div>
@@ -3462,6 +3521,18 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           onNuevo={registrarCodigoComoNuevo}
           onCerrar={() => setCodigoPorVincular(null)}
           textoNuevo={codigoPorVincular.origen === 'venta' ? 'Registrarlo como producto nuevo' : 'Es un producto nuevo'}
+        />
+      )}
+      {pedidoSeguimiento && (
+        <SeguimientoPedido
+          key={pedidoSeguimiento.id}
+          pedidoInicial={pedidoSeguimiento}
+          negocioId={negocioId}
+          usuario={usuario}
+          operacion={operacion}
+          puedeEditar={puede('ventas')}
+          onCerrar={() => setPedidoSeguimiento(null)}
+          mostrarToast={mostrarToast}
         />
       )}
       {toast && (

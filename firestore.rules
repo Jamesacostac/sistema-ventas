@@ -263,6 +263,35 @@ service cloud.firestore {
             && request.resource.data.estado == 'cancelado'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'canceladoEn']));
         allow delete: if false;
+
+        // Fotos del pedido: las del taller las sube caja; las del cliente llegan por la página (Apps Script).
+        // No se editan ni se borran: sirven para comparar si el cliente reporta un problema.
+        match /fotos/{fotoId} {
+          allow read: if miembroVerificado(nid);
+          allow create: if miembroVerificado(nid) && puedeEn(nid, 'ventas')
+            && request.resource.data.keys().hasOnly(['data', 'origen', 'subidoPor', 'creadoEn'])
+            && request.resource.data.origen == 'taller'
+            && request.resource.data.subidoPor == request.auth.uid
+            && request.resource.data.creadoEn == request.time
+            && request.resource.data.data is string
+            && request.resource.data.data.matches('data:image/jpeg;base64,.*')
+            && request.resource.data.data.size() <= 900000;
+          allow update, delete: if false;
+        }
+      }
+
+      // Conversaciones del chat de la página de Noguri (las crea Apps Script). Caja las lee y,
+      // al marcar un pedido listo, agrega el aviso para el cliente.
+      match /chats/{chatId} {
+        allow read: if miembroVerificado(nid) && puedeEn(nid, 'ventas');
+        allow update: if miembroVerificado(nid) && puedeEn(nid, 'ventas')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mensajes', 'actualizadoEn', 'pendiente']);
+        allow create, delete: if false;
+
+        match /fotos/{fotoId} {
+          allow read: if miembroVerificado(nid) && puedeEn(nid, 'ventas');
+          allow write: if false;
+        }
       }
     }
 

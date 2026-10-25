@@ -19,6 +19,8 @@ export const MEDIOS_PAGO_CLIENTE = ['Efectivo', 'Transferencia', 'Tarjeta'];
 
 // Portal de clientes (sitio aparte del portal del negocio para que las sesiones no se mezclen)
 export const URL_PORTAL_CLIENTES = 'https://tazon-pedidos.web.app';
+// Página de solicitudes de Noguri (Angular en Hostinger) con el chat; ?pedido=<código> abre el seguimiento
+export const URL_PAGINA_NOGURI = 'https://tazon-para-dos.online/NOGURI/';
 
 // Negocio que atiende los pedidos del portal (?negocio=id para otro). Es el mismo ID_TAZON de
 // negociosComun, copiado aquí para que el portal de clientes no cargue código del negocio.
