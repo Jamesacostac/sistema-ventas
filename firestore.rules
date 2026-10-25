@@ -288,9 +288,18 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mensajes', 'actualizadoEn', 'pendiente']);
         allow create, delete: if false;
 
+        // Fotos del chat: las del cliente llegan por la página (Apps Script); caja adjunta las suyas al responder
         match /fotos/{fotoId} {
           allow read: if miembroVerificado(nid) && puedeEn(nid, 'ventas');
-          allow write: if false;
+          allow create: if miembroVerificado(nid) && puedeEn(nid, 'ventas')
+            && request.resource.data.keys().hasOnly(['data', 'origen', 'subidoPor', 'creadoEn'])
+            && request.resource.data.origen == 'equipo'
+            && request.resource.data.subidoPor == request.auth.uid
+            && request.resource.data.creadoEn == request.time
+            && request.resource.data.data is string
+            && request.resource.data.data.matches('data:image/jpeg;base64,.*')
+            && request.resource.data.data.size() <= 900000;
+          allow update, delete: if false;
         }
       }
     }

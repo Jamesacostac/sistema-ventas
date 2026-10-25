@@ -23,6 +23,8 @@ import CajaBase from './CajaBase';
 import BajasLotes from './BajasLotes';
 import VincularCodigo from './VincularCodigo';
 import SeguimientoPedido from './SeguimientoPedido';
+import ChatsFlotante from './ChatsFlotante';
+import PreguntasChat from './PreguntasChat';
 import { precioPorCantidad, planificarVenta, descripcionLinea, claveVariante, variantesDe, precioUnitario, esCombo, claveElegidos, descripcionElegidos, costoElegidos, eleccionDe, adicionalesDe, precioExtraElegidos } from './fabricacion';
 import Historial from './Historial';
 import { operacionAuditada, tienePermiso } from './auditoria';
@@ -2019,6 +2021,7 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
       {pestana === 'configuracion' && (
         <div className="space-y-6">
           <ConfigNegocio negocioId={negocioId} negocio={negocio} esTitular={puede('socios') && miembro?.rol === 'titular'} operacion={operacion} />
+          <PreguntasChat negocioId={negocioId} esTitular={puede('socios') && miembro?.rol === 'titular'} operacion={operacion} />
           <ConfigMarca negocioId={negocioId} negocio={negocio} marca={marca} esTitular={miembro?.rol === 'titular'} operacion={operacion} />
         </div>
       )}
@@ -3521,6 +3524,23 @@ export default function App({ usuario, onSesionVencida, negocioId, negocio, nego
           onNuevo={registrarCodigoComoNuevo}
           onCerrar={() => setCodigoPorVincular(null)}
           textoNuevo={codigoPorVincular.origen === 'venta' ? 'Registrarlo como producto nuevo' : 'Es un producto nuevo'}
+        />
+      )}
+      {puede('ventas') && (
+        <ChatsFlotante
+          negocioId={negocioId}
+          usuario={usuario}
+          nombreUsuario={perfil?.nombre}
+          mostrarToast={mostrarToast}
+          onAbrirPedido={async (id) => {
+            try {
+              const s = await getDoc(docN('pedidos', id));
+              if (s.exists()) setPedidoSeguimiento({ id: s.id, ...s.data() });
+              else alert('Ese pedido ya no existe.');
+            } catch (error) {
+              alert('No se pudo abrir el pedido: ' + error.message);
+            }
+          }}
         />
       )}
       {pedidoSeguimiento && (

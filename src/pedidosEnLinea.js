@@ -21,6 +21,8 @@ export const MEDIOS_PAGO_CLIENTE = ['Efectivo', 'Transferencia', 'Tarjeta'];
 export const URL_PORTAL_CLIENTES = 'https://tazon-pedidos.web.app';
 // Página de solicitudes de Noguri (Angular en Hostinger) con el chat; ?pedido=<código> abre el seguimiento
 export const URL_PAGINA_NOGURI = 'https://tazon-para-dos.online/NOGURI/';
+// API de esa página (Google Apps Script): la bandeja de chats le pide traer las respuestas dadas en Telegram
+export const URL_API_NOGURI = 'https://script.google.com/macros/s/AKfycbw1OYWZVBFp2i2lqJ2cefTmgVvl6vQ4M_eoQjA4Gzlc-9DeGiAz63nMtEbQCrk9Fc3T/exec';
 
 // Negocio que atiende los pedidos del portal (?negocio=id para otro). Es el mismo ID_TAZON de
 // negociosComun, copiado aquí para que el portal de clientes no cargue código del negocio.
